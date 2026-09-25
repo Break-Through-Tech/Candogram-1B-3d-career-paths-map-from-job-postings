@@ -1,0 +1,18 @@
+[project]
+name = "candogram-1b-3d-career-paths-map-from-job-postings"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "google-genai>=1.71.0",
+    "ipykernel>=7.3.0",
+    "ipython>=9.17.0",
+    "marimo>=0.24.0",
+    "nbformat>=5.11.1",
+    "numpy>=2.5.2",
+    "pandas>=3.0.5",
+    "plotly>=7.0.0",
+    "pyarrow>=25.0.1",
+    "python-dotenv>=1.0.0",
+]

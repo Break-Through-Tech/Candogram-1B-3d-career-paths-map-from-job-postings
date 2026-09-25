@@ -1,1 +1,4 @@
-
+data/processed/job_representations.parquet
+data/processed/job_move_edges.parquet
+data/processed/job_graph_metadata.json
+.env

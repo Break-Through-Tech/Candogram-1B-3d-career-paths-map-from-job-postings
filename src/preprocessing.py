@@ -21,6 +21,21 @@ MODELING_COLUMNS = [
     "Career Level",
     "seniority_rank",
     "posting_types",
+    "Agency",
+    "Job Description",
+    "Minimum Qual Requirements",
+    "Preferred Skills",
+]
+
+JOB_FIELDS = [
+    "Business Title",
+    "Civil Service Title",
+    "Job Category",
+    "Career Level",
+    "Job Description",
+    "Minimum Qual Requirements",
+    "Preferred Skills",
+    "Agency",
 ]
 
 def load_jobs(input_path: Path) -> pd.DataFrame:
@@ -61,19 +76,21 @@ def combine_job_postings(jobs: pd.DataFrame) -> pd.DataFrame:
         .str.strip()
     )
 
+    if jobs["Job ID"].isna().any():
+        raise ValueError("Job ID is missing from one or more postings")
+    for column in JOB_FIELDS:
+        values = jobs[column].fillna("").astype(str).str.strip()
+        conflicting = jobs.assign(_value=values).groupby("Job ID")["_value"].nunique()
+        if (conflicting > 1).any():
+            job_id = conflicting[conflicting > 1].index[0]
+            raise ValueError(f"Conflicting {column} for Job ID {job_id}")
+
     grouped = jobs.groupby("Job ID", as_index=False).agg(
         {
-            "Business Title": "first",
-            "Civil Service Title": "first",
-            "Job Category": "first",
-            "Career Level": "first",
-            "Job Description": "first",
-            "Minimum Qual Requirements": "first",
-            "Preferred Skills": "first",
+            **{column: "first" for column in JOB_FIELDS},
             "Posting Type": lambda values: ", ".join(
                 sorted(set(values))
             ),
-            "Agency": "first",
         }
     )
     grouped = grouped.rename(columns={"Posting Type": "posting_types"})
@@ -107,24 +124,19 @@ def add_seniority_rank(jobs: pd.DataFrame) -> pd.DataFrame:
     return jobs
 
 def select_modeling_columns(jobs):
-    """Keep only the 8 columns used for modeling."""
-    return jobs[[
-        "Job ID",
-        "Business Title",
-        "normalized_title",
-        "Civil Service Title",
-        "Job Category",
-        "Career Level",
-        "seniority_rank",
-        "posting_types",
-    ]].copy()
+    """Keep text features and provenance alongside title-only baseline fields."""
+    return jobs[MODELING_COLUMNS].copy()
 
 def validate_jobs(jobs: pd.DataFrame) -> pd.DataFrame:
     """Check the processed dataset before saving it."""
-    assert len(jobs) == 1228, f"Expected 1228 rows, got {len(jobs)}"
-    assert jobs["normalized_title"].notna().all()
-    assert (jobs["normalized_title"] != "").all()
-    assert jobs["seniority_rank"].isin([0,1,2,3,4]).all()
+    if jobs.empty or jobs["Job ID"].isna().any() or jobs["Job ID"].duplicated().any():
+        raise ValueError("Expected one non-null, unique Job ID per job")
+    if jobs["normalized_title"].eq("").any() or jobs["normalized_title"].isna().any():
+        raise ValueError("Each job needs a non-blank Business Title")
+    if jobs["seniority_rank"].isna().any():
+        raise ValueError("Unknown or missing Career Level")
+    if jobs["Job Description"].fillna("").astype(str).str.strip().eq("").any():
+        raise ValueError("Each job needs a non-blank Job Description")
     return jobs
 
 def clean_jobs(input_path: str | Path, output_path: str | Path) -> pd.DataFrame:
