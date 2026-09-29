@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Career Paths Map</title>
+  </head>
+  <body>
+    <main id="map"></main>
+
+    <aside id="panel">
+      <header>
+        <h1>Career Paths Map</h1>
+        <p class="muted"><span id="job-count"></span> · NYC job postings</p>
+        <p id="placeholder-note" class="note" hidden>
+          Placeholder layout: points are grouped by job category and stacked by seniority until the
+          embedding model's 3D coordinates are ready.
+        </p>
+      </header>
+
+      <label for="search">Start from a job</label>
+      <input id="search" list="titles" placeholder="Search job titles…" autocomplete="off" />
+      <datalist id="titles"></datalist>
+      <p class="muted hint">Or click any point. Drag to orbit, scroll to zoom.</p>
+
+      <section id="path-panel" hidden>
+        <div class="section-head">
+          <h2>Suggested path</h2>
+          <button id="clear" class="link">Clear</button>
+        </div>
+        <ol id="path"></ol>
+      </section>
+
+      <section>
+        <h2>Seniority</h2>
+        <ul id="legend"></ul>
+      </section>
+    </aside>
+
+    <div id="tooltip" hidden></div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
