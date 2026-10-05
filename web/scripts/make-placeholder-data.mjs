@@ -14,6 +14,7 @@ import { dirname, resolve } from 'node:path'
 const here = dirname(fileURLToPath(import.meta.url))
 const INPUT = resolve(here, '../../data/Jobs_NYC_Postings_20260608.csv')
 const OUTPUT = resolve(here, '../public/data/jobs.json')
+const LOCATIONS_OUTPUT = resolve(here, '../public/data/locations.json')
 
 // Mirrors SENIORITY_MAP in src/preprocessing.py (data_eda branch).
 const SENIORITY_MAP = {
@@ -57,11 +58,13 @@ const [header, ...records] = parseCsv(readFileSync(INPUT, 'utf8'))
 const col = Object.fromEntries(header.map((name, i) => [name.trim(), i]))
 
 const byId = new Map()
+const locationById = new Map()
 for (const r of records) {
   const id = r[col['Job ID']]
   if (!id || byId.has(id)) continue
   const rank = SENIORITY_MAP[r[col['Career Level']]]
   if (rank === undefined) continue
+  locationById.set(id, r[col['Work Location']]?.trim() || '')
   byId.set(id, {
     id,
     title: r[col['Business Title']].replace(/\s+/g, ' ').trim(),
@@ -72,11 +75,14 @@ for (const r of records) {
     salary_from: Number(r[col['Salary Range From']]) || null,
     salary_to: Number(r[col['Salary Range To']]) || null,
     salary_frequency: r[col['Salary Frequency']],
+    minimum_qualifications: r[col['Minimum Qual Requirements']]?.replace(/\s+/g, ' ').trim() || '',
+    preferred_skills: r[col['Preferred Skills']]?.replace(/\s+/g, ' ').trim() || '',
   })
 }
 
 const jobs = [...byId.values()]
 const categories = [...new Set(jobs.map((j) => j.category))].sort()
+const locations = Object.fromEntries(jobs.map((job) => [job.id, locationById.get(job.id)]))
 for (const job of jobs) {
   const angle = (categories.indexOf(job.category) / categories.length) * Math.PI * 2
   const spread = 1.6
@@ -86,4 +92,5 @@ for (const job of jobs) {
 }
 
 writeFileSync(OUTPUT, JSON.stringify({ placeholder: true, jobs }))
+writeFileSync(LOCATIONS_OUTPUT, JSON.stringify(locations))
 console.log(`Wrote ${jobs.length} jobs across ${categories.length} categories to ${OUTPUT}`)

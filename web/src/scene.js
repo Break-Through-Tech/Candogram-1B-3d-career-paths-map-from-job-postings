@@ -45,6 +45,7 @@ export function createScene(container, jobs, { onHover, onSelect }) {
   const mesh = new THREE.InstancedMesh(geometry, material, jobs.length)
   const matrix = new THREE.Matrix4()
   const baseColors = jobs.map((job) => new THREE.Color(SENIORITY_COLORS[job.seniority_rank]))
+  const visible = jobs.map(() => true)
   jobs.forEach((job, i) => {
     matrix.makeTranslation(job.x, job.y, job.z)
     mesh.setMatrixAt(i, matrix)
@@ -65,7 +66,7 @@ export function createScene(container, jobs, { onHover, onSelect }) {
     pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1
     pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1
     raycaster.setFromCamera(pointer, camera)
-    const [hit] = raycaster.intersectObject(mesh)
+    const hit = raycaster.intersectObject(mesh).find((entry) => visible[entry.instanceId])
     return hit ? hit.instanceId : -1
   }
 
@@ -90,17 +91,21 @@ export function createScene(container, jobs, { onHover, onSelect }) {
   })
 
   /** Dim everything except `path`, draw a line through it, and focus it. */
-  function showPath(path) {
-    pathGroup.clear()
+  function updateInstances(path) {
     const onPath = new Set(path)
     jobs.forEach((job, i) => {
-      const scale = onPath.has(job) ? 2.2 : 1
+      const scale = visible[i] ? (onPath.has(job) ? 2.2 : 1) : 0
       matrix.makeScale(scale, scale, scale).setPosition(job.x, job.y, job.z)
       mesh.setMatrixAt(i, matrix)
       mesh.setColorAt(i, path.length && !onPath.has(job) ? DIM_COLOR : baseColors[i])
     })
     mesh.instanceMatrix.needsUpdate = true
     mesh.instanceColor.needsUpdate = true
+  }
+
+  function showPath(path, focus = true) {
+    pathGroup.clear()
+    updateInstances(path)
 
     if (path.length > 1) {
       const points = path.map((job) => new THREE.Vector3(job.x, job.y, job.z))
@@ -111,10 +116,16 @@ export function createScene(container, jobs, { onHover, onSelect }) {
       )
       pathGroup.add(tube)
     }
-    if (path.length) {
+    if (path.length && focus) {
       const box = new THREE.Box3().setFromPoints(path.map((j) => new THREE.Vector3(j.x, j.y, j.z)))
       box.getCenter(controls.target)
     }
+  }
+
+  function setVisibleJobs(visibleJobs) {
+    const visibleSet = new Set(visibleJobs)
+    jobs.forEach((job, i) => { visible[i] = visibleSet.has(job) })
+    updateInstances([])
   }
 
   function resize() {
@@ -131,5 +142,5 @@ export function createScene(container, jobs, { onHover, onSelect }) {
     renderer.render(scene, camera)
   })
 
-  return { showPath }
+  return { showPath, setVisibleJobs }
 }

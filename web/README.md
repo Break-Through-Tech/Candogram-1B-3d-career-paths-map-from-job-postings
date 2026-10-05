@@ -1,7 +1,7 @@
 # Career Paths Map — web app
 
 Interactive 3D map of NYC job postings built with [Vite](https://vite.dev) and [three.js](https://threejs.org).
-Each point is a job; pick one (search or click) to see a suggested path up through the seniority levels.
+Each point is a job; pick one (search or click) to see its posting details and a suggested path up through the seniority levels.
 
 ## Run it
 
@@ -15,7 +15,8 @@ npm run dev
 
 ## Data
 
-The app loads `public/data/jobs.json`:
+The app loads `public/data/jobs.json` and the matching job-ID-to-location map in
+`public/data/locations.json`:
 
 ```json
 {
@@ -50,6 +51,17 @@ node scripts/make-placeholder-data.mjs
 ```
 
 It groups points by job category (x/z) and stacks them by seniority (y).
+The generator also writes the Work Location values to `public/data/locations.json`.
+Each seniority layer can be filtered independently by posted salary range, location,
+job category, and agency. Salary values retain the posting's frequency (for example,
+annual or hourly) and are not converted between frequencies.
+
+Upload a PDF or TXT resume to get local, keyword-based job recommendations. Resume
+text is processed only in the browser and is not uploaded or saved. PDF files must
+contain selectable text; scanned-image PDFs are not OCR-processed. Recommendations
+show shared terms from the resume and public posting qualifications/preferred skills.
+The optional graph filter limits visible jobs to the top 20 matches; existing layer
+filters still apply. This is a heuristic, not an assessment of a candidate's suitability.
 
 ## How paths are computed
 

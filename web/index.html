@@ -24,6 +24,28 @@
       <datalist id="titles"></datalist>
       <p class="muted hint">Or click any point. Drag to orbit, scroll to zoom.</p>
 
+      <section id="job-details" aria-live="polite" hidden>
+        <h2>Selected job</h2>
+        <h3 id="detail-title"></h3>
+        <dl id="detail-fields"></dl>
+      </section>
+
+      <section id="resume-panel">
+        <div class="section-head">
+          <h2>Match jobs to your resume</h2>
+          <button id="clear-resume" class="link" hidden>Clear</button>
+        </div>
+        <label for="resume-file">Upload a PDF or text resume</label>
+        <input id="resume-file" type="file" accept=".pdf,.txt,application/pdf,text/plain" />
+        <p class="muted hint">Analysis stays in this browser. Your resume isn't uploaded or saved.</p>
+        <p id="resume-status" class="muted" role="status"></p>
+        <label id="resume-only-option" class="resume-toggle" hidden>
+          <input id="resume-only" type="checkbox" checked />
+          Show top resume matches on the graph
+        </label>
+        <ol id="resume-matches"></ol>
+      </section>
+
       <section id="path-panel" hidden>
         <div class="section-head">
           <h2>Suggested path</h2>
@@ -35,6 +57,10 @@
       <section>
         <h2>Seniority</h2>
         <ul id="legend"></ul>
+      </section>
+
+      <section id="layer-filters">
+        <h2>Filter by layer</h2>
       </section>
     </aside>
 

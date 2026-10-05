@@ -67,12 +67,46 @@ input {
   border-radius: 8px;
 }
 input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+input[type="file"] { font-size: 12px; }
+input[type="checkbox"] { width: auto; accent-color: var(--accent); }
+select {
+  width: 100%;
+  padding: 8px 9px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--text);
+  background: #0f141e;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 
 .section-head { display: flex; justify-content: space-between; align-items: center; }
 .link { background: none; border: 0; color: var(--accent); cursor: pointer; font: inherit; font-size: 13px; }
 
 ul, ol { list-style: none; margin: 0; padding: 0; }
 #legend li { display: flex; align-items: center; gap: 8px; font-size: 13px; padding: 3px 0; }
+#detail-title { margin: 0 0 10px; font-size: 16px; line-height: 1.4; }
+#detail-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; }
+#detail-fields dt { color: var(--muted); font-size: 11px; }
+#detail-fields dd { margin: 3px 0 0; font-size: 13px; overflow-wrap: anywhere; }
+#resume-panel { display: flex; flex-direction: column; gap: 8px; }
+.resume-toggle { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+#resume-matches { display: flex; flex-direction: column; gap: 6px; }
+.resume-match { display: flex; flex-direction: column; gap: 4px; width: 100%; padding: 8px 10px; text-align: left; color: var(--text); background: #0f141e; border: 1px solid var(--border); border-radius: 8px; cursor: pointer; }
+.resume-match:hover { border-color: var(--accent); }
+.resume-match-title { font-size: 13px; font-weight: 600; }
+.resume-match-meta { color: var(--muted); font-size: 11px; }
+#layer-filters { display: flex; flex-direction: column; gap: 6px; }
+.layer-filter { border: 1px solid var(--border); border-radius: 8px; background: rgba(15, 20, 30, 0.7); }
+.layer-filter summary { display: flex; align-items: center; gap: 8px; padding: 9px 10px; font-size: 13px; cursor: pointer; }
+.layer-filter summary::marker { color: var(--muted); }
+.layer-count { margin-left: auto; color: var(--muted); font-size: 12px; }
+.layer-filter.empty .layer-count { color: #fca5a5; }
+.filter-fields { display: flex; flex-direction: column; gap: 9px; padding: 0 10px 10px; }
+.filter-fields label { display: flex; flex-direction: column; gap: 5px; color: var(--muted); font-size: 12px; }
+.salary-inputs { display: flex; gap: 8px; }
+.salary-inputs input { min-width: 0; }
 
 #path { display: flex; flex-direction: column; gap: 6px; }
 #path button {
