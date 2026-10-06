@@ -112,6 +112,8 @@ def extract_job(client, job, saved=None):
                 ),
             ),
         )
+        if response.text is None:
+            raise ValueError(f"Gemini returned no text for Job ID {job_id}")
         extracted = json.loads(response.text)["core_duties"]
     valid, invalid, restored = validate_passages(description, extracted)
     return {
@@ -141,7 +143,7 @@ def prepare_jobs(jobs: pd.DataFrame, results: dict[str, dict]) -> tuple[pd.DataF
             raise ValueError(f"Description changed for Job ID {job_id}")
         if any(text not in job["Job Description"] for text in result["core_duties"]):
             raise ValueError(f"Unverified passage for Job ID {job_id}")
-        fallback = result["needs_review"] or not result["core_duties"]
+        fallback = result["needs_review"]
         descriptions.append(
             job["Job Description"] if fallback else "\n".join(result["core_duties"])
         )

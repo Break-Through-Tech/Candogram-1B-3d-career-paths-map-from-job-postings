@@ -145,7 +145,7 @@ def combine_job_postings(jobs: pd.DataFrame) -> pd.DataFrame:
 
 def normalize_titles(jobs: pd.DataFrame) -> pd.DataFrame:
     """
-    Normalize job titles by stripping whitespace and converting to title case.
+    Normalize job titles by collapsing whitespace and converting to lowercase.
 
     Args:
         jobs (pd.DataFrame): The job DataFrame.

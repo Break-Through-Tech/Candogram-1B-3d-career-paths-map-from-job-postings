@@ -35,6 +35,34 @@ REQUIRED_COLUMNS = (
     "Preferred Skills",
 )
 
+DISPLAY_FIELDS = {
+    "business_title": "Business Title",
+    "civil_service_title": "Civil Service Title",
+    "job_category": "Job Category",
+    "career_level": "Career Level",
+}
+
+EDGE_COLUMNS = (
+    "edge_id",
+    "source_job_id",
+    "target_job_id",
+    "move_type",
+    "source_seniority_rank",
+    "target_seniority_rank",
+    "role_similarity",
+    "title_term_overlap",
+    "same_job_category",
+    "shared_job_categories",
+    "same_civil_service_title",
+    "shared_title_terms",
+    "ranking_score",
+    *(
+        f"{side}_{field}"
+        for field in DISPLAY_FIELDS
+        for side in ("source", "target")
+    ),
+)
+
 TITLE_STOP_WORDS = {
     "a",
     "an",
@@ -192,12 +220,9 @@ def build_edges(
     title_term_sets = [
         title_terms(value_as_text(value)) for value in jobs["normalized_title"]
     ]
-    display_columns = (
-        "Business Title", "Civil Service Title", "Job Category", "Career Level"
-    )
     display = {
         column: [value_as_text(value) for value in jobs[column]]
-        for column in display_columns
+        for column in DISPLAY_FIELDS.values()
     }
 
     edge_rows: list[dict[str, object]] = []
@@ -250,73 +275,38 @@ def build_edges(
         for candidates in candidates_by_rank.values():
             candidates.sort(
                 key=lambda candidate: (
-                    -float(candidate["ranking_score"]),
-                    job_ids[int(candidate["target_index"])],
+                    -candidate["ranking_score"],
+                    job_ids[candidate["target_index"]],
                 )
             )
-        for candidate in (
-            candidate
-            for candidates in candidates_by_rank.values()
-            for candidate in candidates[:max_candidates_per_level]
-        ):
-            target_index = int(candidate["target_index"])
-            target_job_id = job_ids[target_index]
-            edge_rows.append(
-                {
-                    "edge_id": stable_edge_id(source_job_id, target_job_id),
-                    "source_job_id": source_job_id,
-                    "target_job_id": target_job_id,
-                    "move_type": (
-                        "lateral"
-                        if ranks[target_index] == ranks[source_index]
-                        else "up_one_seniority_rank"
-                    ),
-                    "source_seniority_rank": int(ranks[source_index]),
-                    "target_seniority_rank": int(ranks[target_index]),
-                    "role_similarity": candidate["role_similarity"],
-                    "title_term_overlap": candidate["title_term_overlap"],
-                    "same_job_category": candidate["same_job_category"],
-                    "shared_job_categories": candidate["shared_job_categories"],
-                    "same_civil_service_title": candidate[
-                        "same_civil_service_title"
-                    ],
-                    "shared_title_terms": candidate["shared_title_terms"],
-                    "ranking_score": candidate["ranking_score"],
-                    "source_business_title": display["Business Title"][source_index],
-                    "target_business_title": display["Business Title"][target_index],
-                    "source_civil_service_title": display["Civil Service Title"][source_index],
-                    "target_civil_service_title": display["Civil Service Title"][target_index],
-                    "source_job_category": display["Job Category"][source_index],
-                    "target_job_category": display["Job Category"][target_index],
-                    "source_career_level": display["Career Level"][source_index],
-                    "target_career_level": display["Career Level"][target_index],
-                }
-            )
+            for candidate in candidates[:max_candidates_per_level]:
+                target_index = candidate.pop("target_index")
+                target_job_id = job_ids[target_index]
+                edge_rows.append(
+                    {
+                        **candidate,
+                        "edge_id": stable_edge_id(source_job_id, target_job_id),
+                        "source_job_id": source_job_id,
+                        "target_job_id": target_job_id,
+                        "move_type": (
+                            "lateral"
+                            if ranks[target_index] == ranks[source_index]
+                            else "up_one_seniority_rank"
+                        ),
+                        "source_seniority_rank": int(ranks[source_index]),
+                        "target_seniority_rank": int(ranks[target_index]),
+                        **{
+                            f"{side}_{field}": display[column][index]
+                            for side, index in (
+                                ("source", source_index),
+                                ("target", target_index),
+                            )
+                            for field, column in DISPLAY_FIELDS.items()
+                        },
+                    }
+                )
 
-    edge_columns = (
-        "edge_id",
-        "source_job_id",
-        "target_job_id",
-        "move_type",
-        "source_seniority_rank",
-        "target_seniority_rank",
-        "role_similarity",
-        "title_term_overlap",
-        "same_job_category",
-        "shared_job_categories",
-        "same_civil_service_title",
-        "shared_title_terms",
-        "ranking_score",
-        "source_business_title",
-        "target_business_title",
-        "source_civil_service_title",
-        "target_civil_service_title",
-        "source_job_category",
-        "target_job_category",
-        "source_career_level",
-        "target_career_level",
-    )
-    edges = pd.DataFrame(edge_rows, columns=edge_columns)
+    edges = pd.DataFrame(edge_rows, columns=EDGE_COLUMNS)
     return edges.sort_values(
         ["source_job_id", "ranking_score", "target_job_id"],
         ascending=[True, False, True],
@@ -337,12 +327,6 @@ def build_job_graph(
     if max_candidates_per_level < 1:
         raise ValueError("max_candidates_per_level must be at least 1")
 
-    from google import genai
-
-    load_dotenv(Path(__file__).resolve().parents[1] / ".env")
-    api_key = os.getenv("GEMINI_API_KEY")
-    if not api_key:
-        raise ValueError("Set GEMINI_API_KEY in .env or your environment")
     jobs = load_prepared_descriptions(load_jobs(input_path), prepared_path)
     role_texts = [build_role_text(job) for _, job in jobs.iterrows()]
     cached = {}
@@ -356,8 +340,17 @@ def build_job_graph(
                     else None
                 )
                 cached[(row.job_id, row.semantic_role_text)] = (row.embedding, token_count)
-    with genai.Client(api_key=api_key) as client:
-        embeddings, token_counts = embed_roles(client, jobs, role_texts, cached)
+    if all((str(job_id), text) in cached for job_id, text in zip(jobs["Job ID"], role_texts)):
+        embeddings, token_counts = embed_roles(None, jobs, role_texts, cached)
+    else:
+        from google import genai
+
+        load_dotenv(Path(__file__).resolve().parents[1] / ".env")
+        api_key = os.getenv("GEMINI_API_KEY")
+        if not api_key:
+            raise ValueError("Set GEMINI_API_KEY in .env or your environment")
+        with genai.Client(api_key=api_key) as client:
+            embeddings, token_counts = embed_roles(client, jobs, role_texts, cached)
 
     representations = jobs.copy()
     representations.insert(0, "job_id", jobs["Job ID"].astype(str))
