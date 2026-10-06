@@ -1,8 +1,38 @@
 """Cleaning pipeline for job dataset."""
 
+import json
 from pathlib import Path
+import re
 import pandas as pd
 
+
+CATEGORY_LABELS = (
+    "Engineering, Architecture, & Planning",
+    "Health",
+    "Legal Affairs",
+    "Constituent Services & Community Programs",
+    "Finance, Accounting, & Procurement",
+    "Administration & Human Resources",
+    "Technology, Data & Innovation",
+    "Building Operations & Maintenance",
+    "Social Services",
+    "Public Safety, Inspections, & Enforcement",
+    "Policy, Research & Analysis",
+    "Communications & Intergovernmental Affairs",
+    "Mental Health",
+    "Green Jobs",
+)
+
+CATEGORY_PATTERNS = [
+    (
+        category,
+        re.compile(
+            r"(?<!\w)" + r"\s+".join(map(re.escape, category.split())) + r"(?!\w)",
+            re.IGNORECASE,
+        ),
+    )
+    for category in sorted(CATEGORY_LABELS, key=len, reverse=True)
+]
 
 SENIORITY_MAP = {
     "Student": 0,
@@ -12,12 +42,19 @@ SENIORITY_MAP = {
     "Executive": 4,
 }
 
+ANNUALIZATION_MULTIPLIERS = {
+    "Annual": 1,
+    "Hourly": 2080,
+    "Daily": 260,
+}
+
 MODELING_COLUMNS = [
     "Job ID",
     "Business Title",
     "normalized_title",
     "Civil Service Title",
     "Job Category",
+    "job_categories",
     "Career Level",
     "seniority_rank",
     "posting_types",
@@ -25,6 +62,13 @@ MODELING_COLUMNS = [
     "Job Description",
     "Minimum Qual Requirements",
     "Preferred Skills",
+    "Salary Range From",
+    "Salary Range To",
+    "Salary Frequency",
+    "normalized_salary_frequency",
+    "annual_salary_from",
+    "annual_salary_to",
+    "salary_annualization_basis",
 ]
 
 JOB_FIELDS = [
@@ -36,6 +80,9 @@ JOB_FIELDS = [
     "Minimum Qual Requirements",
     "Preferred Skills",
     "Agency",
+    "Salary Range From",
+    "Salary Range To",
+    "Salary Frequency",
 ]
 
 def load_jobs(input_path: Path) -> pd.DataFrame:
@@ -112,6 +159,32 @@ def normalize_titles(jobs: pd.DataFrame) -> pd.DataFrame:
     )
     return jobs
 
+def normalize_job_categories(jobs: pd.DataFrame) -> pd.DataFrame:
+    """Map combined source category text to a JSON list of canonical labels."""
+    jobs = jobs.copy()
+
+    def extract_categories(value: object) -> str:
+        text = " ".join(str(value).split())
+        matched = set()
+        spans = []
+        for category, pattern in CATEGORY_PATTERNS:
+            for match in pattern.finditer(text):
+                if not any(
+                    match.start() < end and match.end() > start
+                    for start, end in spans
+                ):
+                    matched.add(category)
+                    spans.append(match.span())
+        if not matched:
+            raise ValueError(f"Unmapped Job Category: {value}")
+        return json.dumps(
+            [category for category in CATEGORY_LABELS if category in matched],
+            ensure_ascii=False,
+        )
+
+    jobs["job_categories"] = jobs["Job Category"].map(extract_categories)
+    return jobs
+
 def add_seniority_rank(jobs: pd.DataFrame) -> pd.DataFrame:
     """
     Add a seniority level column based on the Career Level.
@@ -121,6 +194,48 @@ def add_seniority_rank(jobs: pd.DataFrame) -> pd.DataFrame:
     """
     jobs = jobs.copy()
     jobs["seniority_rank"] = jobs["Career Level"].map(SENIORITY_MAP)
+    return jobs
+
+def add_annualized_salary(jobs: pd.DataFrame) -> pd.DataFrame:
+    """Add estimated full-time annual salary ranges and retain source values."""
+    jobs = jobs.copy()
+    jobs["normalized_salary_frequency"] = jobs["Salary Frequency"]
+
+    explicitly_hourly = (
+        jobs["Job Description"]
+        .fillna("")
+        .str.contains(r"\bhourly\b|\bper\s*/?\s*hour\b", case=False, regex=True)
+    )
+    signature_columns = [
+        "Business Title",
+        "Civil Service Title",
+        "Salary Range From",
+        "Salary Range To",
+    ]
+    hourly_signatures = set(
+        map(
+            tuple,
+            jobs.loc[
+                explicitly_hourly & jobs["Salary Frequency"].eq("Daily"),
+                signature_columns,
+            ].to_numpy(),
+        )
+    )
+    daily_hourly_signature = (
+        jobs["Salary Frequency"].eq("Daily")
+        & jobs[signature_columns].apply(tuple, axis=1).isin(hourly_signatures)
+    )
+    jobs.loc[daily_hourly_signature, "normalized_salary_frequency"] = "Hourly"
+    jobs["salary_annualization_basis"] = jobs["normalized_salary_frequency"]
+    jobs.loc[daily_hourly_signature, "salary_annualization_basis"] = (
+        "Hourly rate stated in matching job description"
+    )
+    multipliers = jobs["normalized_salary_frequency"].map(
+        ANNUALIZATION_MULTIPLIERS
+    )
+    jobs["annual_salary_from"] = jobs["Salary Range From"] * multipliers
+    jobs["annual_salary_to"] = jobs["Salary Range To"] * multipliers
+    jobs.loc[jobs["Salary Range From"].eq(0), "annual_salary_from"] = pd.NA
     return jobs
 
 def select_modeling_columns(jobs):
@@ -145,7 +260,9 @@ def clean_jobs(input_path: str | Path, output_path: str | Path) -> pd.DataFrame:
     jobs = remove_exact_duplicates(jobs)
     jobs = combine_job_postings(jobs)
     jobs = normalize_titles(jobs)
+    jobs = normalize_job_categories(jobs)
     jobs = add_seniority_rank(jobs)
+    jobs = add_annualized_salary(jobs)
     jobs = select_modeling_columns(jobs)
     jobs = validate_jobs(jobs)
     output_path = Path(output_path)

@@ -1,0 +1,84 @@
+{
+  "job_count": 1228,
+  "judge_model": "gemini-3.8-flash",
+  "embedding_model": "gemini-embedding-2",
+  "representation_status": {
+    "extracted": 1200,
+    "original_fallback": 28
+  },
+  "accepted_passage_count": 6840,
+  "rejected_passage_count": 28,
+  "whitespace_restored_passage_count": 329,
+  "median_selected_text_reduction": 0.52911666214009,
+  "metrics": {
+    "all": {
+      "job_count": 80,
+      "mean_relevance_at_5": {
+        "cleaned_index": 1.4725,
+        "full_index": 1.33,
+        "title_only_index": 1.065
+      },
+      "substantial_overlap_at_5": {
+        "cleaned_index": 0.5525,
+        "full_index": 0.475,
+        "title_only_index": 0.3525
+      },
+      "cleaned_vs_full": {
+        "better": 31,
+        "tied": 39,
+        "worse": 10,
+        "mean_difference": 0.14250000000000002,
+        "descriptive_bootstrap_95_interval": [
+          0.0675,
+          0.225
+        ]
+      }
+    },
+    "pilot": {
+      "job_count": 40,
+      "mean_relevance_at_5": {
+        "cleaned_index": 1.49,
+        "full_index": 1.29,
+        "title_only_index": 1.105
+      },
+      "substantial_overlap_at_5": {
+        "cleaned_index": 0.56,
+        "full_index": 0.46,
+        "title_only_index": 0.4
+      },
+      "cleaned_vs_full": {
+        "better": 19,
+        "tied": 16,
+        "worse": 5,
+        "mean_difference": 0.2,
+        "descriptive_bootstrap_95_interval": [
+          0.085,
+          0.33499999999999996
+        ]
+      }
+    },
+    "fresh": {
+      "job_count": 40,
+      "mean_relevance_at_5": {
+        "cleaned_index": 1.455,
+        "full_index": 1.37,
+        "title_only_index": 1.025
+      },
+      "substantial_overlap_at_5": {
+        "cleaned_index": 0.545,
+        "full_index": 0.49,
+        "title_only_index": 0.305
+      },
+      "cleaned_vs_full": {
+        "better": 12,
+        "tied": 23,
+        "worse": 5,
+        "mean_difference": 0.085,
+        "descriptive_bootstrap_95_interval": [
+          1.3877787807814458e-18,
+          0.185
+        ]
+      }
+    }
+  }
+}

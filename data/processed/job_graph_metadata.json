@@ -1,0 +1,54 @@
+{
+  "description_selection": {
+    "extracted": 1200,
+    "original_fallback": 28,
+    "source": "data/processed/description_full/prepared_jobs.csv"
+  },
+  "edge_count": 77278,
+  "edge_rules": {
+    "allowed_target_seniority_ranks": "source rank or source rank + 1",
+    "category_labels": [
+      "Administration & Human Resources",
+      "Building Operations & Maintenance",
+      "Communications & Intergovernmental Affairs",
+      "Constituent Services & Community Programs",
+      "Engineering, Architecture, & Planning",
+      "Finance, Accounting, & Procurement",
+      "Green Jobs",
+      "Health",
+      "Legal Affairs",
+      "Mental Health",
+      "Policy, Research & Analysis",
+      "Public Safety, Inspections, & Enforcement",
+      "Social Services",
+      "Technology, Data & Innovation"
+    ],
+    "category_overlap_uses": "job_categories canonical labels",
+    "max_candidates_per_seniority_rank": 32,
+    "ranking_score": "0.90 * role_similarity + 0.06 * title_term_overlap + 0.03 * same_civil_service_title + 0.01 * same_job_category",
+    "scope": "nearby browsing suggestions only; not a route-search boundary",
+    "similarity_cutoff": null
+  },
+  "embedding_model": "gemini-embedding-2",
+  "excluded_from_semantic_similarity": [
+    "Minimum Qual Requirements",
+    "Preferred Skills"
+  ],
+  "input_csv": "data/processed/jobs_clean.csv",
+  "input_sha256": "d1b663dbe518134432a4499d9e88043b3169222905302f78fcaed2b62874c844",
+  "job_count": 1228,
+  "representation": {
+    "embedding_dimensions": 1536,
+    "long_texts_counted": 0,
+    "maximum_counted_tokens": null,
+    "model_token_limit": 8192,
+    "strategy": "full role text, one embedding per job"
+  },
+  "schema_version": 5,
+  "semantic_source_columns": [
+    "Business Title",
+    "Civil Service Title",
+    "Job Category",
+    "Job Description"
+  ]
+}

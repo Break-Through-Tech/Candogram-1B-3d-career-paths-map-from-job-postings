@@ -1,4 +1,6 @@
-data/processed/job_representations.parquet
-data/processed/job_move_edges.parquet
-data/processed/job_graph_metadata.json
 .env
+.venv/
+.ruff_cache/
+__pycache__/
+.DS_Store
+data/processed/jobs_clean.csv

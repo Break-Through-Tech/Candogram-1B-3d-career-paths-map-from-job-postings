@@ -25,6 +25,7 @@ REQUIRED_COLUMNS = (
     "normalized_title",
     "Civil Service Title",
     "Job Category",
+    "job_categories",
     "Career Level",
     "seniority_rank",
     "posting_types",
@@ -74,14 +75,40 @@ def build_role_text(job: pd.Series) -> str:
     are intentionally excluded here: a posting's requirements do not establish
     a current job holder's qualifications.
     """
+    description = job.get("selected_description", job["Job Description"])
     return "\n".join(
         (
             f"Business title: {value_as_text(job['Business Title'])}",
             f"Civil service title: {value_as_text(job['Civil Service Title'])}",
             f"Job category: {value_as_text(job['Job Category'])}",
-            f"Job description: {value_as_text(job['Job Description'])}",
+            f"Job description: {value_as_text(description)}",
         )
     )
+
+
+def load_prepared_descriptions(jobs: pd.DataFrame, path: Path) -> pd.DataFrame:
+    """Use selected descriptions only for matching source jobs."""
+    prepared = pd.read_csv(path, dtype={"Job ID": "string"}, low_memory=False)
+    selected = prepared.set_index("Job ID")
+    jobs = jobs.copy()
+    descriptions = []
+    statuses = []
+    for _, job in jobs.iterrows():
+        job_id = str(job["Job ID"])
+        if job_id in selected.index:
+            if selected.at[job_id, "Job Description"] != job["Job Description"]:
+                raise ValueError(
+                    f"Prepared description is stale for Job ID {job_id}; "
+                    "run src.job_descriptions first"
+                )
+            descriptions.append(selected.at[job_id, "selected_description"])
+            statuses.append(selected.at[job_id, "representation_status"])
+        else:
+            descriptions.append(job["Job Description"])
+            statuses.append("original_fallback")
+    jobs["selected_description"] = descriptions
+    jobs["representation_status"] = statuses
+    return jobs
 
 
 def embed_roles(
@@ -96,7 +123,7 @@ def embed_roles(
     for index, (job_id, text) in enumerate(zip(jobs["Job ID"], role_texts), start=1):
         saved = cached.get((str(job_id), text))
         token_count = saved[1] if saved is not None else None
-        if len(text.encode("utf-8")) > MODEL_MAX_INPUT_TOKENS - 2 and token_count is None:
+        if saved is None and len(text.encode("utf-8")) > MODEL_MAX_INPUT_TOKENS - 2:
             token_count = client.models.count_tokens(model=MODEL_NAME, contents=text).total_tokens
             if token_count > MODEL_MAX_INPUT_TOKENS:
                 raise ValueError(
@@ -156,7 +183,9 @@ def build_edges(
     similarities = embeddings @ embeddings.T
     job_ids = jobs["Job ID"].astype(str).tolist()
     ranks = jobs["seniority_rank"].astype(int).to_numpy()
-    categories = [normalized_value(value) for value in jobs["Job Category"]]
+    categories = [
+        set(json.loads(value)) for value in jobs["job_categories"]
+    ]
     civil_service_titles = [
         normalized_value(value) for value in jobs["Civil Service Title"]
     ]
@@ -186,7 +215,10 @@ def build_edges(
             shared_terms = sorted(
                 title_term_sets[source_index].intersection(title_term_sets[target_index])
             )
-            same_category = categories[source_index] == categories[target_index]
+            shared_categories = sorted(
+                categories[source_index].intersection(categories[target_index])
+            )
+            same_category = bool(shared_categories)
             same_civil_service_title = (
                 civil_service_titles[source_index]
                 == civil_service_titles[target_index]
@@ -206,6 +238,9 @@ def build_edges(
                     "role_similarity": role_similarity,
                     "title_term_overlap": title_overlap,
                     "same_job_category": same_category,
+                    "shared_job_categories": json.dumps(
+                        shared_categories, ensure_ascii=False
+                    ),
                     "same_civil_service_title": same_civil_service_title,
                     "shared_title_terms": ", ".join(shared_terms),
                     "ranking_score": ranking_score,
@@ -241,6 +276,7 @@ def build_edges(
                     "role_similarity": candidate["role_similarity"],
                     "title_term_overlap": candidate["title_term_overlap"],
                     "same_job_category": candidate["same_job_category"],
+                    "shared_job_categories": candidate["shared_job_categories"],
                     "same_civil_service_title": candidate[
                         "same_civil_service_title"
                     ],
@@ -267,6 +303,7 @@ def build_edges(
         "role_similarity",
         "title_term_overlap",
         "same_job_category",
+        "shared_job_categories",
         "same_civil_service_title",
         "shared_title_terms",
         "ranking_score",
@@ -293,6 +330,7 @@ def build_job_graph(
     edges_path: Path,
     metadata_path: Path,
     *,
+    prepared_path: Path = Path("data/processed/description_full/prepared_jobs.csv"),
     max_candidates_per_level: int = DEFAULT_MAX_CANDIDATES_PER_LEVEL,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Create job representations and nearby suggestions from the cleaned snapshot."""
@@ -305,7 +343,7 @@ def build_job_graph(
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
         raise ValueError("Set GEMINI_API_KEY in .env or your environment")
-    jobs = load_jobs(input_path)
+    jobs = load_prepared_descriptions(load_jobs(input_path), prepared_path)
     role_texts = [build_role_text(job) for _, job in jobs.iterrows()]
     cached = {}
     if representations_path.exists():
@@ -314,7 +352,7 @@ def build_job_graph(
             if row.embedding_model == MODEL_NAME and len(row.embedding) == EMBEDDING_DIMENSIONS:
                 token_count = (
                     int(row.semantic_text_token_count)
-                    if pd.notna(row.semantic_text_token_count)
+                    if hasattr(row, "semantic_text_token_count") and pd.notna(row.semantic_text_token_count)
                     else None
                 )
                 cached[(row.job_id, row.semantic_role_text)] = (row.embedding, token_count)
@@ -326,7 +364,7 @@ def build_job_graph(
     representations["semantic_role_text"] = role_texts
     representations["semantic_text_token_count"] = token_counts
     representations["embedding_model"] = MODEL_NAME
-    representations["embedding"] = [embedding.tolist() for embedding in embeddings]
+    representations["embedding"] = list(embeddings)
 
     edges = build_edges(
         jobs,
@@ -335,11 +373,16 @@ def build_job_graph(
     )
     input_digest = hashlib.sha256(input_path.read_bytes()).hexdigest()
     metadata = {
-        "schema_version": 3,
+        "schema_version": 5,
         "input_csv": str(input_path),
         "input_sha256": input_digest,
         "job_count": len(jobs),
         "embedding_model": MODEL_NAME,
+        "description_selection": {
+            "source": str(prepared_path),
+            "extracted": int(jobs["representation_status"].eq("extracted").sum()),
+            "original_fallback": int(jobs["representation_status"].eq("original_fallback").sum()),
+        },
         "semantic_source_columns": [
             "Business Title",
             "Civil Service Title",
@@ -363,6 +406,14 @@ def build_job_graph(
             "allowed_target_seniority_ranks": "source rank or source rank + 1",
             "max_candidates_per_seniority_rank": max_candidates_per_level,
             "similarity_cutoff": None,
+            "category_overlap_uses": "job_categories canonical labels",
+            "category_labels": sorted(
+                {
+                    category
+                    for value in jobs["job_categories"]
+                    for category in json.loads(value)
+                }
+            ),
             "scope": "nearby browsing suggestions only; not a route-search boundary",
             "ranking_score": (
                 "0.90 * role_similarity + 0.06 * title_term_overlap + "
@@ -374,8 +425,8 @@ def build_job_graph(
     representations_path.parent.mkdir(parents=True, exist_ok=True)
     edges_path.parent.mkdir(parents=True, exist_ok=True)
     metadata_path.parent.mkdir(parents=True, exist_ok=True)
-    representations.to_parquet(representations_path, index=False)
-    edges.to_parquet(edges_path, index=False)
+    representations.to_parquet(representations_path, index=False, compression="zstd")
+    edges.to_parquet(edges_path, index=False, compression="zstd")
     metadata_path.write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n")
     return representations, edges
 
@@ -390,6 +441,12 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=Path("data/processed/jobs_clean.csv"),
         help="Cleaned job CSV input.",
+    )
+    parser.add_argument(
+        "--prepared-input",
+        type=Path,
+        default=Path("data/processed/description_full/prepared_jobs.csv"),
+        help="Selected description CSV produced by src.job_descriptions.",
     )
     parser.add_argument(
         "--representations-output",
@@ -426,6 +483,7 @@ def main() -> None:
         representations_path=args.representations_output,
         edges_path=args.edges_output,
         metadata_path=args.metadata_output,
+        prepared_path=args.prepared_input,
         max_candidates_per_level=args.max_candidates_per_level,
     )
     sources_with_edges = edges["source_job_id"].nunique()
