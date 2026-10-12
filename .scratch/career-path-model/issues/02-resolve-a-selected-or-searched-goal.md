@@ -2,7 +2,7 @@
 
 **What to build:** A user clicks a job node or searches for a target role. The model returns an exact selected job or a short list of possible destination jobs for the user to choose from.
 
-**Blocked by:** None — can start immediately.
+**Blocked by:** 00 — User profile embeddings (complete).
 
 **Status:** ready-for-agent
 

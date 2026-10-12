@@ -13,10 +13,12 @@ import numpy as np
 import pandas as pd
 from dotenv import load_dotenv
 
+from src.embedding_config import (
+    EMBEDDING_DIMENSIONS,
+    MODEL_MAX_INPUT_TOKENS,
+    MODEL_NAME,
+)
 
-MODEL_NAME = "gemini-embedding-2"
-MODEL_MAX_INPUT_TOKENS = 8192
-EMBEDDING_DIMENSIONS = 1536
 DEFAULT_MAX_CANDIDATES_PER_LEVEL = 32
 
 REQUIRED_COLUMNS = (

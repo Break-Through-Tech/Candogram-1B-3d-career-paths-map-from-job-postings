@@ -2,7 +2,7 @@
 
 **What to build:** A user supplies a current role or work summary and any stated skills or qualifications. The model returns a short, ranked list of relevant jobs now, with a concise reason for each recommendation.
 
-**Blocked by:** None — can start immediately.
+**Blocked by:** 00 — User profile embeddings (complete).
 
 **Status:** ready-for-agent
 

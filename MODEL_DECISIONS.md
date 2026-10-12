@@ -84,3 +84,15 @@ Add a dated entry when a new modeling problem leads to a consequential choice. R
 - **Evidence:** The model-blinded comparison scored cleaned neighbors 1.473 versus 1.330 for full descriptions on 80 queries. The replacement contains 1,228 normalized vectors; all match the validated cleaned collection, and 77,278 rebuilt links have unique endpoints.
 - **Instead of:** Copying an embedding file without changing its generating pipeline, or deleting old vectors before verifying the replacement.
 - **Revisit when:** New data or independent review changes which passages best represent a job.
+
+## 2026-10-06 — Embed work profiles and goal queries within a session
+
+- **Problem:** The model has job vectors but no inputs for a person's current work or desired destination.
+- **Decision:** Use separate, extensible Python data models for work profiles and natural-language goal queries. The query is the goal feature, not a separate search beside a saved goal. Keep interests with the goal. Select embedding fields explicitly in text preparation. Education, licenses, and experience years remain separate facts.
+- **Embedding settings:** Use the existing Gemini Embedding 2 model with 1,536 dimensions. Share settings with job embeddings. Apply the official text search-query prefix to user inputs. Preserve existing job vectors; a paired query/document-format comparison remains future evaluation work.
+- **Cache:** Keep vectors in memory in one `EmbeddingSession` per user session. Key them by prepared text, input type, model, dimensions, and text-format version. Reuse exact cached results without renormalizing them. Clear the cache at session end; the app must also release its own references.
+- **Privacy:** Accept only work-related fields. Do not log or save user text or vectors. Do not build automatic PII redaction in this pass. The calling app must supply PII-free text; this module does not detect personal details in free text. Verification uses synthetic inputs only.
+- **Instead of:** Combining current work and desired work into one vector, automatically embedding every new model field, persisting user embeddings with shared job artifacts, or implementing job ranking in the embedding ticket.
+- **Observed:** Six live synthetic embedding requests returned valid normalized vectors, including one long input checked with `count_tokens`. Repeated calls reused the cache without new API calls. Offline checks exercised edits, session cleanup and isolation, empty inputs, limits, malformed responses, and sanitized API errors.
+- **Matching limit:** Developer and audit profiles retrieved jobs in their work domains. A software-engineering internship query retrieved civil-engineering internships. Four additional format probes showed that removing the query prefix did not resolve the domain mismatch. These are smoke checks, not a relevance benchmark. Goal resolution must add role/title evidence and reject unsuitable matches.
+- **Revisit when:** Evaluation supports a different text format, or repeat use justifies persistent user-specific storage with access and deletion rules.
