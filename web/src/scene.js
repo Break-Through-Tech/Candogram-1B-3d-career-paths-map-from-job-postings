@@ -5,11 +5,12 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 export const SENIORITY_COLORS = ['#7dd3fc', '#34d399', '#facc15', '#fb923c', '#f472b6']
 
 const DIM_COLOR = new THREE.Color('#3a4150')
+const HIDDEN_COLOR = new THREE.Color('#1a1f2a')
 const POINT_RADIUS = 0.09
 
 /**
  * Renders jobs as an instanced sphere cloud with orbit controls, hover and
- * click picking, and a highlighted career path polyline.
+ * click picking, filtering, and a highlighted career path polyline.
  */
 export function createScene(container, jobs, { onHover, onSelect }) {
   const renderer = new THREE.WebGLRenderer({ antialias: true })
@@ -45,15 +46,31 @@ export function createScene(container, jobs, { onHover, onSelect }) {
   const mesh = new THREE.InstancedMesh(geometry, material, jobs.length)
   const matrix = new THREE.Matrix4()
   const baseColors = jobs.map((job) => new THREE.Color(SENIORITY_COLORS[job.seniority_rank]))
-  jobs.forEach((job, i) => {
-    matrix.makeTranslation(job.x, job.y, job.z)
-    mesh.setMatrixAt(i, matrix)
-    mesh.setColorAt(i, baseColors[i])
-  })
   scene.add(mesh)
 
   const pathGroup = new THREE.Group()
   scene.add(pathGroup)
+
+  let visible = jobs.map(() => true)
+  let path = []
+
+  /** Recompute every point's size and color from the filter and path. */
+  function redraw() {
+    const onPath = new Set(path)
+    jobs.forEach((job, i) => {
+      let scale = 1
+      let color = baseColors[i]
+      if (onPath.has(job)) scale = 2.2
+      else if (!visible[i]) { scale = 0.6; color = HIDDEN_COLOR }
+      else if (path.length) color = DIM_COLOR
+      matrix.makeScale(scale, scale, scale).setPosition(job.x, job.y, job.z)
+      mesh.setMatrixAt(i, matrix)
+      mesh.setColorAt(i, color)
+    })
+    mesh.instanceMatrix.needsUpdate = true
+    mesh.instanceColor.needsUpdate = true
+  }
+  redraw()
 
   // Picking
   const raycaster = new THREE.Raycaster()
@@ -65,7 +82,7 @@ export function createScene(container, jobs, { onHover, onSelect }) {
     pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1
     pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1
     raycaster.setFromCamera(pointer, camera)
-    const [hit] = raycaster.intersectObject(mesh)
+    const hit = raycaster.intersectObject(mesh).find((h) => visible[h.instanceId] || path.includes(jobs[h.instanceId]))
     return hit ? hit.instanceId : -1
   }
 
@@ -75,6 +92,10 @@ export function createScene(container, jobs, { onHover, onSelect }) {
     hovered = index
     renderer.domElement.style.cursor = index >= 0 ? 'pointer' : ''
     onHover(index >= 0 ? jobs[index] : null, event)
+  })
+  renderer.domElement.addEventListener('pointerleave', () => {
+    hovered = -1
+    onHover(null)
   })
 
   // Distinguish clicks from orbit drags.
@@ -89,18 +110,17 @@ export function createScene(container, jobs, { onHover, onSelect }) {
     onSelect(index >= 0 ? jobs[index] : null)
   })
 
-  /** Dim everything except `path`, draw a line through it, and focus it. */
-  function showPath(path) {
+  /** Show only jobs where `isVisible(job)` is true; the rest fade out. */
+  function setFilter(isVisible) {
+    visible = jobs.map(isVisible)
+    redraw()
+  }
+
+  /** Dim everything except `nextPath`, draw a line through it, and focus it. */
+  function showPath(nextPath) {
+    path = nextPath
+    redraw()
     pathGroup.clear()
-    const onPath = new Set(path)
-    jobs.forEach((job, i) => {
-      const scale = onPath.has(job) ? 2.2 : 1
-      matrix.makeScale(scale, scale, scale).setPosition(job.x, job.y, job.z)
-      mesh.setMatrixAt(i, matrix)
-      mesh.setColorAt(i, path.length && !onPath.has(job) ? DIM_COLOR : baseColors[i])
-    })
-    mesh.instanceMatrix.needsUpdate = true
-    mesh.instanceColor.needsUpdate = true
 
     if (path.length > 1) {
       const points = path.map((job) => new THREE.Vector3(job.x, job.y, job.z))
@@ -114,6 +134,8 @@ export function createScene(container, jobs, { onHover, onSelect }) {
     if (path.length) {
       const box = new THREE.Box3().setFromPoints(path.map((j) => new THREE.Vector3(j.x, j.y, j.z)))
       box.getCenter(controls.target)
+    } else {
+      controls.target.copy(center)
     }
   }
 
@@ -131,5 +153,5 @@ export function createScene(container, jobs, { onHover, onSelect }) {
     renderer.render(scene, camera)
   })
 
-  return { showPath }
+  return { setFilter, showPath }
 }

@@ -12,25 +12,57 @@
     <aside id="panel">
       <header>
         <h1>Career Paths Map</h1>
-        <p class="muted"><span id="job-count"></span> · NYC job postings</p>
+        <p class="muted" id="job-count"></p>
         <p id="placeholder-note" class="note" hidden>
           Placeholder layout: points are grouped by job category and stacked by seniority until the
           embedding model's 3D coordinates are ready.
         </p>
       </header>
 
-      <label for="search">Start from a job</label>
-      <input id="search" list="titles" placeholder="Search job titles…" autocomplete="off" />
-      <datalist id="titles"></datalist>
-      <p class="muted hint">Or click any point. Drag to orbit, scroll to zoom.</p>
-
-      <section id="path-panel" hidden>
-        <div class="section-head">
-          <h2>Suggested path</h2>
-          <button id="clear" class="link">Clear</button>
-        </div>
-        <ol id="path"></ol>
+      <section class="profile">
+        <p id="profile-summary"></p>
+        <button id="edit-profile" class="link"></button>
       </section>
+
+      <div>
+        <label for="search">Find a job</label>
+        <input id="search" list="titles" placeholder="Search job titles…" autocomplete="off" />
+        <datalist id="titles"></datalist>
+        <p class="muted hint">Or click any point. Drag to orbit, scroll to zoom.</p>
+      </div>
+
+      <section id="results"></section>
+
+      <details id="filters" open>
+        <summary><h2>Filters</h2></summary>
+
+        <div class="filter">
+          <div class="section-head">
+            <span class="filter-label">Industry</span>
+            <button id="clear-industries" class="link">All</button>
+          </div>
+          <div id="industries" class="chips small"></div>
+        </div>
+
+        <div class="filter">
+          <div class="section-head">
+            <label for="min-salary" class="filter-label">Minimum salary</label>
+            <span id="min-salary-value" class="muted"></span>
+          </div>
+          <input id="min-salary" type="range" min="0" max="200000" step="5000" />
+        </div>
+
+        <label class="toggle">
+          <input id="qualified-only" type="checkbox" />
+          <span>Only jobs I meet the minimums for now</span>
+        </label>
+        <p id="qualified-only-hint" class="muted hint">Add your education and experience to use this.</p>
+
+        <label class="toggle">
+          <input id="hide-license" type="checkbox" />
+          <span>Hide jobs that need a license or certification</span>
+        </label>
+      </details>
 
       <section>
         <h2>Seniority</h2>

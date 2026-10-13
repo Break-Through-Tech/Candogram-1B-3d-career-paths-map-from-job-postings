@@ -1,5 +1,5 @@
-// Career path logic: from a starting job, repeatedly step to the nearest job
-// (in the 3D embedding space) that sits at a higher seniority rank.
+// Career path logic: step between seniority levels by moving to the nearest
+// job (in the 3D embedding space) at the next level up or down.
 
 export const SENIORITY_LABELS = [
   'Student',
@@ -10,6 +10,8 @@ export const SENIORITY_LABELS = [
 ]
 
 const MAX_RANK = SENIORITY_LABELS.length - 1
+// Paths that work backward stop at Entry-Level; Student roles are internships.
+const BACKWARD_MIN_RANK = 1
 
 function distanceSq(a, b) {
   const dx = a.x - b.x
@@ -29,17 +31,30 @@ export function nearestAtRank(jobs, job, rank, k = 1) {
 }
 
 /**
- * Greedy path from `start` up to the most senior level. If no job exists at
- * the next rank, skip ahead to the next rank that has one.
+ * Greedy path through `jobs` from `anchor`, skipping levels with no jobs.
+ *
+ * - `forward`: where the anchor can lead, from the anchor up to Executive.
+ * - `backward`: how to reach the anchor, from Entry-Level up to the anchor.
+ *
+ * Either way the returned path is ordered from junior to senior.
+ *
+ * With `sameField`, each step prefers jobs sharing a category with the
+ * previous one. Placeholder coordinates only cluster by category, so without
+ * this, steps can jump to an unrelated neighboring cluster.
  */
-export function careerPath(jobs, start) {
-  const path = [start]
-  let current = start
-  for (let rank = start.seniority_rank + 1; rank <= MAX_RANK; rank++) {
-    const [next] = nearestAtRank(jobs, current, rank)
+export function careerPath(jobs, anchor, direction = 'forward', { sameField = false } = {}) {
+  const path = [anchor]
+  let current = anchor
+  const step = direction === 'forward' ? 1 : -1
+  const last = direction === 'forward' ? MAX_RANK : BACKWARD_MIN_RANK
+  for (let rank = anchor.seniority_rank + step; step > 0 ? rank <= last : rank >= last; rank += step) {
+    const sameFieldJobs = sameField
+      ? jobs.filter((job) => job.categories.some((c) => current.categories.includes(c)))
+      : []
+    const [next] = nearestAtRank(sameFieldJobs, current, rank).concat(nearestAtRank(jobs, current, rank))
     if (!next) continue
     path.push(next)
     current = next
   }
-  return path
+  return direction === 'forward' ? path : path.reverse()
 }

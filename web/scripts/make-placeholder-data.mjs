@@ -1,27 +1,26 @@
-// Builds public/data/jobs.json from the raw NYC postings CSV so the web app
-// has real titles to render before the embedding + UMAP pipeline exists.
+// Builds public/data/jobs.json from the cleaned postings CSV so the web app
+// has real jobs to render before the embedding + UMAP pipeline exists.
 //
-// Coordinates here are PLACEHOLDERS: x/z cluster by Job Category, y is the
-// seniority rank. Replace this file with the model's output once it's ready
+// Input comes from the data_cleaning branch: run `python main.py` there to
+// produce data/processed/jobs_clean_with_salary.csv.
+//
+// Coordinates here are PLACEHOLDERS: x/z cluster by job category, y is the
+// seniority rank. Replace them with the model's output once it's ready
 // (same JSON shape — see web/README.md).
 //
 // Usage: node scripts/make-placeholder-data.mjs
 
-import { readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
 
 const here = dirname(fileURLToPath(import.meta.url))
-const INPUT = resolve(here, '../../data/Jobs_NYC_Postings_20260608.csv')
+const INPUT = resolve(here, '../../data/processed/jobs_clean_with_salary.csv')
 const OUTPUT = resolve(here, '../public/data/jobs.json')
 
-// Mirrors SENIORITY_MAP in src/preprocessing.py (data_eda branch).
-const SENIORITY_MAP = {
-  Student: 0,
-  'Entry-Level': 1,
-  'Experienced (non-manager)': 2,
-  Manager: 3,
-  Executive: 4,
+if (!existsSync(INPUT)) {
+  console.error(`Missing ${INPUT}\nRun \`python main.py\` on the data_cleaning branch first.`)
+  process.exit(1)
 }
 
 function parseCsv(text) {
@@ -53,32 +52,32 @@ function hash(str, salt) {
   return ((h >>> 0) / 2 ** 32) * 2 - 1
 }
 
+const number = (value) => (value === '' ? null : Number(value))
+
 const [header, ...records] = parseCsv(readFileSync(INPUT, 'utf8'))
-const col = Object.fromEntries(header.map((name, i) => [name.trim(), i]))
+const col = Object.fromEntries(header.map((name, i) => [name, i]))
+const get = (r, name) => r[col[name]] ?? ''
 
-const byId = new Map()
-for (const r of records) {
-  const id = r[col['Job ID']]
-  if (!id || byId.has(id)) continue
-  const rank = SENIORITY_MAP[r[col['Career Level']]]
-  if (rank === undefined) continue
-  byId.set(id, {
-    id,
-    title: r[col['Business Title']].replace(/\s+/g, ' ').trim(),
-    category: (r[col['Job Category']] || 'Other').split(/[,&]/)[0].trim() || 'Other',
-    agency: r[col['Agency']],
-    career_level: r[col['Career Level']],
-    seniority_rank: rank,
-    salary_from: Number(r[col['Salary Range From']]) || null,
-    salary_to: Number(r[col['Salary Range To']]) || null,
-    salary_frequency: r[col['Salary Frequency']],
-  })
-}
+const jobs = records
+  .filter((r) => get(r, 'Job ID'))
+  .map((r) => ({
+    id: get(r, 'Job ID'),
+    title: get(r, 'Business Title'),
+    agency: get(r, 'Agency'),
+    categories: get(r, 'job_categories').split('; ').filter(Boolean),
+    career_level: get(r, 'Career Level'),
+    seniority_rank: Number(get(r, 'seniority_rank')),
+    salary_from: number(get(r, 'salary_from_annual')),
+    salary_to: number(get(r, 'salary_to_annual')),
+    salary_mid: number(get(r, 'salary_midpoint_annual')),
+    min_education_rank: number(get(r, 'min_education_rank')),
+    min_years_experience: number(get(r, 'min_years_experience')),
+    license: get(r, 'license_or_cert_mentioned') === 'True',
+  }))
 
-const jobs = [...byId.values()]
-const categories = [...new Set(jobs.map((j) => j.category))].sort()
+const categories = [...new Set(jobs.map((j) => j.categories[0] ?? 'Other'))].sort()
 for (const job of jobs) {
-  const angle = (categories.indexOf(job.category) / categories.length) * Math.PI * 2
+  const angle = (categories.indexOf(job.categories[0] ?? 'Other') / categories.length) * Math.PI * 2
   const spread = 1.6
   job.x = +(Math.cos(angle) * 6 + hash(job.title, 1) * spread).toFixed(3)
   job.z = +(Math.sin(angle) * 6 + hash(job.title, 2) * spread).toFixed(3)
