@@ -1,10 +1,8 @@
-"""Cleaning pipeline for job dataset."""
-
 import json
-from pathlib import Path
 import re
-import pandas as pd
+from pathlib import Path
 
+import pandas as pd
 
 CATEGORY_LABELS = (
     "Engineering, Architecture, & Planning",
@@ -85,79 +83,48 @@ JOB_FIELDS = [
     "Salary Frequency",
 ]
 
-def load_jobs(input_path: Path) -> pd.DataFrame:
-    """
-    Load job data from a CSV file.
 
-    Args:
-        input_path (Path): The path to the input CSV file.
-    """
-    input_path = Path(input_path)
-    if not input_path.exists():
-        raise FileNotFoundError(f"The file {input_path} does not exist.")
+def load_jobs(input_path: str | Path) -> pd.DataFrame:
     jobs = pd.read_csv(input_path, low_memory=False)
-    jobs.columns = jobs.columns.str.strip()  # Strip whitespace from column names
+    jobs.columns = jobs.columns.str.strip()
     return jobs
 
-def remove_exact_duplicates(jobs: pd.DataFrame) -> pd.DataFrame:
-    """
-    Remove exact duplicate rows from the DataFrame.
-
-    Args:
-        jobs (pd.DataFrame): The job DataFrame.
-    """
-    return jobs.drop_duplicates()
 
 def combine_job_postings(jobs: pd.DataFrame) -> pd.DataFrame:
-    """
-    Create one record per Job ID and preserve posting types.
-
-    Args:
-        jobs (pd.DataFrame): The job DataFrame.
-    """
     jobs = jobs.copy()
-    jobs["Posting Type"] = (
-        jobs["Posting Type"]
-        .fillna("Unknown")
-        .astype(str)
-        .str.strip()
-    )
+    jobs["Posting Type"] = jobs["Posting Type"].fillna("Unknown").str.strip()
 
     if jobs["Job ID"].isna().any():
         raise ValueError("Job ID is missing from one or more postings")
+    normalized = (
+        jobs[JOB_FIELDS].fillna("").astype(str).apply(lambda column: column.str.strip())
+    )
+    conflicts = normalized.groupby(jobs["Job ID"]).nunique()
     for column in JOB_FIELDS:
-        values = jobs[column].fillna("").astype(str).str.strip()
-        conflicting = jobs.assign(_value=values).groupby("Job ID")["_value"].nunique()
-        if (conflicting > 1).any():
-            job_id = conflicting[conflicting > 1].index[0]
+        if conflicts[column].gt(1).any():
+            job_id = conflicts.index[conflicts[column].gt(1)][0]
             raise ValueError(f"Conflicting {column} for Job ID {job_id}")
 
     grouped = jobs.groupby("Job ID", as_index=False).agg(
         {
             **{column: "first" for column in JOB_FIELDS},
-            "Posting Type": lambda values: ", ".join(
-                sorted(set(values))
-            ),
+            "Posting Type": lambda values: ", ".join(sorted(set(values))),
         }
     )
-    grouped = grouped.rename(columns={"Posting Type": "posting_types"})
-    return grouped
+    return grouped.rename(columns={"Posting Type": "posting_types"})
+
 
 def normalize_titles(jobs: pd.DataFrame) -> pd.DataFrame:
-    """
-    Normalize job titles by collapsing whitespace and converting to lowercase.
-
-    Args:
-        jobs (pd.DataFrame): The job DataFrame.
-    """
     jobs = jobs.copy()
     jobs["normalized_title"] = (
-        jobs["Business Title"].fillna("")
+        jobs["Business Title"]
+        .fillna("")
         .str.replace(r"\s+", " ", regex=True)
         .str.strip()
         .str.lower()
     )
     return jobs
+
 
 def normalize_job_categories(jobs: pd.DataFrame) -> pd.DataFrame:
     """Map combined source category text to a JSON list of canonical labels."""
@@ -170,8 +137,7 @@ def normalize_job_categories(jobs: pd.DataFrame) -> pd.DataFrame:
         for category, pattern in CATEGORY_PATTERNS:
             for match in pattern.finditer(text):
                 if not any(
-                    match.start() < end and match.end() > start
-                    for start, end in spans
+                    match.start() < end and match.end() > start for start, end in spans
                 ):
                     matched.add(category)
                     spans.append(match.span())
@@ -185,19 +151,8 @@ def normalize_job_categories(jobs: pd.DataFrame) -> pd.DataFrame:
     jobs["job_categories"] = jobs["Job Category"].map(extract_categories)
     return jobs
 
-def add_seniority_rank(jobs: pd.DataFrame) -> pd.DataFrame:
-    """
-    Add a seniority level column based on the Career Level.
-
-    Args:
-        jobs (pd.DataFrame): The job DataFrame.
-    """
-    jobs = jobs.copy()
-    jobs["seniority_rank"] = jobs["Career Level"].map(SENIORITY_MAP)
-    return jobs
 
 def add_annualized_salary(jobs: pd.DataFrame) -> pd.DataFrame:
-    """Add estimated full-time annual salary ranges and retain source values."""
     jobs = jobs.copy()
     jobs["normalized_salary_frequency"] = jobs["Salary Frequency"]
 
@@ -221,32 +176,25 @@ def add_annualized_salary(jobs: pd.DataFrame) -> pd.DataFrame:
             ].to_numpy(),
         )
     )
-    daily_hourly_signature = (
-        jobs["Salary Frequency"].eq("Daily")
-        & jobs[signature_columns].apply(tuple, axis=1).isin(hourly_signatures)
-    )
+    daily_hourly_signature = jobs["Salary Frequency"].eq("Daily") & jobs[
+        signature_columns
+    ].apply(tuple, axis=1).isin(hourly_signatures)
     jobs.loc[daily_hourly_signature, "normalized_salary_frequency"] = "Hourly"
     jobs["salary_annualization_basis"] = jobs["normalized_salary_frequency"]
     jobs.loc[daily_hourly_signature, "salary_annualization_basis"] = (
         "Hourly rate stated in matching job description"
     )
-    multipliers = jobs["normalized_salary_frequency"].map(
-        ANNUALIZATION_MULTIPLIERS
-    )
+    multipliers = jobs["normalized_salary_frequency"].map(ANNUALIZATION_MULTIPLIERS)
     jobs["annual_salary_from"] = jobs["Salary Range From"] * multipliers
     jobs["annual_salary_to"] = jobs["Salary Range To"] * multipliers
     jobs.loc[jobs["Salary Range From"].eq(0), "annual_salary_from"] = pd.NA
     return jobs
 
-def select_modeling_columns(jobs):
-    """Keep text features and provenance alongside title-only baseline fields."""
-    return jobs[MODELING_COLUMNS].copy()
 
 def validate_jobs(jobs: pd.DataFrame) -> pd.DataFrame:
-    """Check the processed dataset before saving it."""
-    if jobs.empty or jobs["Job ID"].isna().any() or jobs["Job ID"].duplicated().any():
-        raise ValueError("Expected one non-null, unique Job ID per job")
-    if jobs["normalized_title"].eq("").any() or jobs["normalized_title"].isna().any():
+    if jobs.empty:
+        raise ValueError("Expected at least one job")
+    if jobs["normalized_title"].eq("").any():
         raise ValueError("Each job needs a non-blank Business Title")
     if jobs["seniority_rank"].isna().any():
         raise ValueError("Unknown or missing Career Level")
@@ -254,16 +202,15 @@ def validate_jobs(jobs: pd.DataFrame) -> pd.DataFrame:
         raise ValueError("Each job needs a non-blank Job Description")
     return jobs
 
+
 def clean_jobs(input_path: str | Path, output_path: str | Path) -> pd.DataFrame:
-    """Run the complete preprocessing pipeline."""
-    jobs = load_jobs(input_path)
-    jobs = remove_exact_duplicates(jobs)
+    jobs = load_jobs(input_path).drop_duplicates()
     jobs = combine_job_postings(jobs)
     jobs = normalize_titles(jobs)
     jobs = normalize_job_categories(jobs)
-    jobs = add_seniority_rank(jobs)
+    jobs["seniority_rank"] = jobs["Career Level"].map(SENIORITY_MAP)
     jobs = add_annualized_salary(jobs)
-    jobs = select_modeling_columns(jobs)
+    jobs = jobs[MODELING_COLUMNS]
     jobs = validate_jobs(jobs)
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)

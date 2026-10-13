@@ -33,7 +33,6 @@ def _clean_items(values: tuple[str, ...]) -> list[str]:
 
 
 def prepare_profile_text(profile: WorkProfile) -> str:
-    """Select work fields explicitly; leave qualification facts separate."""
     lines = []
     for label, value in (
         ("Current role", profile.current_role),
@@ -56,7 +55,6 @@ def prepare_profile_text(profile: WorkProfile) -> str:
 
 
 def prepare_goal_text(goal: GoalQuery) -> str:
-    """Use the query itself as the career goal."""
     text = _clean_text(goal.text)
     if not text:
         raise ValueError("Goal query must not be blank")
@@ -95,7 +93,6 @@ class EmbeddingSession:
         self.clear()
 
     def clear(self) -> None:
-        """Discard cached embeddings when the user session ends."""
         self._cache.clear()
 
     def embed_profile(self, profile: WorkProfile) -> UserEmbedding:

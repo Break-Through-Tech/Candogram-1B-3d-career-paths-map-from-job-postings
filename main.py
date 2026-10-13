@@ -1,6 +1,6 @@
 from pathlib import Path
-from src.preprocessing import clean_jobs
 
+from src.preprocessing import clean_jobs
 
 if __name__ == "__main__":
     clean_jobs(

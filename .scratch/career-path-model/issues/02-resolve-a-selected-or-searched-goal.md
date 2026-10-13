@@ -4,8 +4,12 @@
 
 **Blocked by:** 00 — User profile embeddings (complete).
 
-**Status:** ready-for-agent
+**Status:** incomplete — selected-ID lookup and candidate ranking exist; validated goal resolution and no-match handling do not.
 
-- [ ] A selected job ID resolves to that exact job and remains the route endpoint.
-- [ ] A typed or natural-language role request retrieves and ranks destination jobs using role meaning and title evidence.
-- [ ] Ambiguous requests present distinct choices; a request without a suitable match does not silently select an unrelated job.
+- [x] A selected job ID resolves to that exact job and remains the route endpoint.
+- [ ] Validate query-to-job relevance, including main duties, requested level, and negation.
+- [ ] Present distinct choices for broad or ambiguous requests.
+- [ ] Return an explicit no-match result when no suitable destination exists.
+
+`src/goal_search.py` provides candidate ranking. Decisions and evaluation limits
+are recorded in `MODEL_DECISIONS.md`.

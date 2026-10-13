@@ -3,9 +3,9 @@
 import argparse
 import hashlib
 import json
-import os
-from pathlib import Path
 import re
+from contextlib import ExitStack
+from pathlib import Path
 
 import pandas as pd
 from dotenv import load_dotenv
@@ -89,16 +89,16 @@ def extract_job(client, job, saved=None):
         "job_category": job["Job Category"],
         "description": description,
     }
-    fingerprint = hashlib.sha256(json.dumps(
-        [MODEL, INSTRUCTION, SCHEMA, payload], sort_keys=True
-    ).encode()).hexdigest()
+    fingerprint = hashlib.sha256(
+        json.dumps([MODEL, INSTRUCTION, SCHEMA, payload], sort_keys=True).encode()
+    ).hexdigest()
     if saved and saved.get("fingerprint") == fingerprint:
-        extracted = saved.get(
-            "model_passages", saved["core_duties"] + saved["invalid_passages"],
-        )
+        extracted = saved["model_passages"]
     else:
         if client is None:
-            raise ValueError(f"Description cache is stale for Job ID {job_id}; run with --generate")
+            raise ValueError(
+                f"Description cache is stale for Job ID {job_id}; run with --generate"
+            )
         response = client.models.generate_content(
             model=MODEL,
             contents=json.dumps(payload, ensure_ascii=False),
@@ -107,9 +107,6 @@ def extract_job(client, job, saved=None):
                 response_mime_type="application/json",
                 response_json_schema=SCHEMA,
                 temperature=0,
-                automatic_function_calling=types.AutomaticFunctionCallingConfig(
-                    disable=True,
-                ),
             ),
         )
         if response.text is None:
@@ -130,7 +127,9 @@ def extract_job(client, job, saved=None):
     }
 
 
-def prepare_jobs(jobs: pd.DataFrame, results: dict[str, dict]) -> tuple[pd.DataFrame, pd.DataFrame]:
+def prepare_jobs(
+    jobs: pd.DataFrame, results: dict[str, dict]
+) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Select verified passages or preserve the original description."""
     prepared = jobs.copy()
     descriptions = []
@@ -149,24 +148,40 @@ def prepare_jobs(jobs: pd.DataFrame, results: dict[str, dict]) -> tuple[pd.DataF
         )
         statuses.append("original_fallback" if fallback else "extracted")
         if fallback:
-            flagged.append({
-                "Job ID": job_id,
-                "Business Title": job["Business Title"],
-                "representation_status": "original_fallback",
-                "rejected_passages": json.dumps(result["invalid_passages"], ensure_ascii=False),
-            })
+            flagged.append(
+                {
+                    "Job ID": job_id,
+                    "Business Title": job["Business Title"],
+                    "representation_status": "original_fallback",
+                    "rejected_passages": json.dumps(
+                        result["invalid_passages"], ensure_ascii=False
+                    ),
+                }
+            )
     prepared["selected_description"] = descriptions
     prepared["representation_status"] = statuses
-    return prepared, pd.DataFrame(flagged, columns=[
-        "Job ID", "Business Title", "representation_status", "rejected_passages",
-    ])
+    return prepared, pd.DataFrame(
+        flagged,
+        columns=[
+            "Job ID",
+            "Business Title",
+            "representation_status",
+            "rejected_passages",
+        ],
+    )
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--input", type=Path, default=Path("data/processed/jobs_clean.csv"))
-    parser.add_argument("--output", type=Path, default=Path("data/processed/description_full"))
-    parser.add_argument("--generate", action="store_true", help="Call Gemini for new or changed jobs.")
+    parser.add_argument(
+        "--input", type=Path, default=Path("data/processed/jobs_clean.csv")
+    )
+    parser.add_argument(
+        "--output", type=Path, default=Path("data/processed/description_full")
+    )
+    parser.add_argument(
+        "--generate", action="store_true", help="Call Gemini for new or changed jobs."
+    )
     args = parser.parse_args()
     jobs = pd.read_csv(args.input, dtype={"Job ID": "string"}, low_memory=False)
     args.output.mkdir(parents=True, exist_ok=True)
@@ -177,36 +192,25 @@ def main():
             result = json.loads(line)
             saved[result["job_id"]] = result
 
-    client = None
-    try:
+    with ExitStack() as stack:
+        client = None
         if args.generate:
             load_dotenv(Path(__file__).resolve().parents[1] / ".env")
-            key = os.environ.get("GEMINI_API_KEY")
-            if not key:
-                raise ValueError("Set GEMINI_API_KEY before using --generate")
-            client = genai.Client(api_key=key)
+            client = stack.enter_context(genai.Client())
         results = {}
         for _, job in jobs.iterrows():
             job_id = str(job["Job ID"])
-            if job_id not in saved and client is None:
-                raise ValueError(f"No saved description for Job ID {job_id}; run with --generate")
             result = extract_job(client, job, saved.get(job_id))
             results[job_id] = result
             if args.generate and saved.get(job_id) != result:
                 with result_path.open("a") as output:
                     output.write(json.dumps(result, ensure_ascii=False) + "\n")
         prepared, flagged = prepare_jobs(jobs, results)
-        if args.generate:
-            result_path.write_text("".join(
-                json.dumps(results[str(job_id)], ensure_ascii=False) + "\n"
-                for job_id in jobs["Job ID"]
-            ))
         prepared.to_csv(args.output / "prepared_jobs.csv", index=False)
         flagged.to_csv(args.output / "flagged_jobs.csv", index=False)
-        print(f"Prepared {len(prepared)} jobs; {len(flagged)} kept original descriptions.")
-    finally:
-        if client is not None:
-            client.close()
+        print(
+            f"Prepared {len(prepared)} jobs; {len(flagged)} kept original descriptions."
+        )
 
 
 if __name__ == "__main__":

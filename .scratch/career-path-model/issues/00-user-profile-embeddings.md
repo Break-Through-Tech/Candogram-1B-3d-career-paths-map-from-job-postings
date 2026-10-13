@@ -22,7 +22,7 @@ search, not a separate saved-goal feature.
   long input. Run failure and cache-boundary checks without adding test files.
 
 **Implementation:** `src/user_profile.py`, `src/profile_embeddings.py`, and
-`src/embedding_config.py`. See [the usage guide](../../../docs/user-profile-embeddings.md).
+`src/embedding_config.py`.
 
 **Follow-up:** Tickets 01 and 02 own recommendation ranking and goal resolution.
 Vector-only matching can confuse internship domains and does not establish

@@ -5,13 +5,14 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import os
 import re
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 from dotenv import load_dotenv
+from google import genai
+from google.genai import types
 
 from src.embedding_config import (
     EMBEDDING_DIMENSIONS,
@@ -20,6 +21,12 @@ from src.embedding_config import (
 )
 
 DEFAULT_MAX_CANDIDATES_PER_LEVEL = 32
+BROWSING_SCORE_WEIGHTS = {
+    "role_similarity": 0.90,
+    "title_term_overlap": 0.06,
+    "same_civil_service_title": 0.03,
+    "same_job_category": 0.01,
+}
 
 REQUIRED_COLUMNS = (
     "Job ID",
@@ -58,11 +65,7 @@ EDGE_COLUMNS = (
     "same_civil_service_title",
     "shared_title_terms",
     "ranking_score",
-    *(
-        f"{side}_{field}"
-        for field in DISPLAY_FIELDS
-        for side in ("source", "target")
-    ),
+    *(f"{side}_{field}" for field in DISPLAY_FIELDS for side in ("source", "target")),
 )
 
 TITLE_STOP_WORDS = {
@@ -79,14 +82,12 @@ TITLE_STOP_WORDS = {
 
 
 def value_as_text(value: object) -> str:
-    """Return a stripped source value without turning missing values into text."""
     if pd.isna(value):
         return ""
     return str(value).strip()
 
 
 def load_jobs(input_path: Path) -> pd.DataFrame:
-    """Load one unique, non-blank identifier per cleaned job posting."""
     jobs = pd.read_csv(input_path, dtype={"Job ID": "string"})
     missing_columns = sorted(set(REQUIRED_COLUMNS).difference(jobs.columns))
     if missing_columns:
@@ -99,92 +100,85 @@ def load_jobs(input_path: Path) -> pd.DataFrame:
 
 
 def build_role_text(job: pd.Series) -> str:
-    """Build the role-only text used for semantic similarity.
-
-    Qualifications and preferred skills stay in the representation artifact, but
-    are intentionally excluded here: a posting's requirements do not establish
-    a current job holder's qualifications.
-    """
-    description = job.get("selected_description", job["Job Description"])
     return "\n".join(
         (
             f"Business title: {value_as_text(job['Business Title'])}",
             f"Civil service title: {value_as_text(job['Civil Service Title'])}",
             f"Job category: {value_as_text(job['Job Category'])}",
-            f"Job description: {value_as_text(description)}",
+            f"Job description: {value_as_text(job['selected_description'])}",
         )
     )
 
 
 def load_prepared_descriptions(jobs: pd.DataFrame, path: Path) -> pd.DataFrame:
-    """Use selected descriptions only for matching source jobs."""
     prepared = pd.read_csv(path, dtype={"Job ID": "string"}, low_memory=False)
-    selected = prepared.set_index("Job ID")
-    jobs = jobs.copy()
-    descriptions = []
-    statuses = []
-    for _, job in jobs.iterrows():
-        job_id = str(job["Job ID"])
-        if job_id in selected.index:
-            if selected.at[job_id, "Job Description"] != job["Job Description"]:
-                raise ValueError(
-                    f"Prepared description is stale for Job ID {job_id}; "
-                    "run src.job_descriptions first"
-                )
-            descriptions.append(selected.at[job_id, "selected_description"])
-            statuses.append(selected.at[job_id, "representation_status"])
-        else:
-            descriptions.append(job["Job Description"])
-            statuses.append("original_fallback")
-    jobs["selected_description"] = descriptions
-    jobs["representation_status"] = statuses
+    selected = prepared[
+        ["Job ID", "Job Description", "selected_description", "representation_status"]
+    ].rename(columns={"Job Description": "prepared_source_description"})
+    jobs = jobs.merge(selected, on="Job ID", how="left", validate="one_to_one")
+    processed = jobs["representation_status"].notna()
+    stale = processed & jobs["prepared_source_description"].ne(jobs["Job Description"])
+    if stale.any():
+        job_id = jobs.loc[stale, "Job ID"].iloc[0]
+        raise ValueError(
+            f"Prepared description is stale for Job ID {job_id}; "
+            "run src.job_descriptions first"
+        )
+    jobs["selected_description"] = jobs["selected_description"].fillna(
+        jobs["Job Description"]
+    )
+    jobs["representation_status"] = jobs["representation_status"].fillna(
+        "original_fallback"
+    )
+    jobs = jobs.drop(columns="prepared_source_description")
     return jobs
 
 
 def embed_roles(
     client, jobs: pd.DataFrame, role_texts: list[str], cached: dict
 ) -> tuple[np.ndarray, list[int | None]]:
-    """Embed full role texts with Gemini; keep qualifications out of role similarity."""
-    from google.genai import types
-
     vectors = []
     new_embeddings = 0
     token_counts: list[int | None] = []
     for index, (job_id, text) in enumerate(zip(jobs["Job ID"], role_texts), start=1):
         saved = cached.get((str(job_id), text))
-        token_count = saved[1] if saved is not None else None
-        if saved is None and len(text.encode("utf-8")) > MODEL_MAX_INPUT_TOKENS - 2:
-            token_count = client.models.count_tokens(model=MODEL_NAME, contents=text).total_tokens
-            if token_count > MODEL_MAX_INPUT_TOKENS:
-                raise ValueError(
-                    f"Job ID {job_id} has {token_count} tokens; "
-                    f"{MODEL_NAME} accepts at most {MODEL_MAX_INPUT_TOKENS}"
-                )
-        if saved is None:
-            # Gemini Embedding 2 can treat a plain list as one document.
+        if saved is not None:
+            vector, token_count = saved
+        else:
+            token_count = None
+            if len(text.encode("utf-8")) > MODEL_MAX_INPUT_TOKENS - 2:
+                token_count = client.models.count_tokens(
+                    model=MODEL_NAME, contents=text
+                ).total_tokens
+                if token_count > MODEL_MAX_INPUT_TOKENS:
+                    raise ValueError(
+                        f"Job ID {job_id} has {token_count} tokens; "
+                        f"{MODEL_NAME} accepts at most {MODEL_MAX_INPUT_TOKENS}"
+                    )
             response = client.models.embed_content(
                 model=MODEL_NAME,
                 contents=text,
-                config=types.EmbedContentConfig(output_dimensionality=EMBEDDING_DIMENSIONS),
+                config=types.EmbedContentConfig(
+                    output_dimensionality=EMBEDDING_DIMENSIONS
+                ),
             )
             embedding = response.embeddings[0]
             if embedding.statistics and embedding.statistics.truncated:
                 raise ValueError(f"Gemini truncated Job ID {job_id}")
-            vector = embedding.values
+            vector = np.asarray(embedding.values, dtype=np.float32)
+            vector = vector / np.linalg.norm(vector)
             new_embeddings += 1
-        else:
-            vector = saved[0]
         token_counts.append(token_count)
         vectors.append(vector)
         if index % 100 == 0 or index == len(role_texts):
             print(f"Prepared {index}/{len(role_texts)} jobs", flush=True)
-    print(f"Reused {len(role_texts) - new_embeddings} embeddings; created {new_embeddings}.")
-    embeddings = np.asarray(vectors, dtype=np.float32)
-    return embeddings / np.linalg.norm(embeddings, axis=1, keepdims=True), token_counts
+    print(
+        f"Reused {len(role_texts) - new_embeddings} embeddings; created {new_embeddings}."
+    )
+    return np.asarray(vectors, dtype=np.float32), token_counts
 
 
 def title_terms(title: str) -> set[str]:
-    """Return non-filler title words for interpretable overlap evidence."""
     return {
         term
         for term in re.findall(r"[a-z0-9]+", title.lower())
@@ -193,13 +187,11 @@ def title_terms(title: str) -> set[str]:
 
 
 def stable_edge_id(source_job_id: str, target_job_id: str) -> str:
-    """Create an identifier that depends only on the two directed endpoints."""
     endpoints = f"{source_job_id}\x1f{target_job_id}".encode()
     return f"move_{hashlib.sha256(endpoints).hexdigest()}"
 
 
 def normalized_value(value: object) -> str:
-    """Normalize source text only for equality comparisons."""
     return " ".join(value_as_text(value).lower().split())
 
 
@@ -209,13 +201,10 @@ def build_edges(
     *,
     max_candidates_per_level: int,
 ) -> pd.DataFrame:
-    """Rank lateral and upward candidates separately without a similarity cutoff."""
     similarities = embeddings @ embeddings.T
     job_ids = jobs["Job ID"].astype(str).tolist()
     ranks = jobs["seniority_rank"].astype(int).to_numpy()
-    categories = [
-        set(json.loads(value)) for value in jobs["job_categories"]
-    ]
+    categories = [set(json.loads(value)) for value in jobs["job_categories"]]
     civil_service_titles = [
         normalized_value(value) for value in jobs["Civil Service Title"]
     ]
@@ -233,31 +222,33 @@ def build_edges(
             ((ranks == ranks[source_index]) | (ranks == ranks[source_index] + 1))
             & (np.arange(len(jobs)) != source_index)
         )
-        candidates_by_rank: dict[int, list[dict[str, object]]] = {
+        candidates_by_rank = {
             ranks[source_index]: [],
             ranks[source_index] + 1: [],
         }
         for target_index in eligible_indices:
             role_similarity = float(similarities[source_index, target_index])
             shared_terms = sorted(
-                title_term_sets[source_index].intersection(title_term_sets[target_index])
+                title_term_sets[source_index].intersection(
+                    title_term_sets[target_index]
+                )
             )
             shared_categories = sorted(
                 categories[source_index].intersection(categories[target_index])
             )
             same_category = bool(shared_categories)
             same_civil_service_title = (
-                civil_service_titles[source_index]
-                == civil_service_titles[target_index]
+                civil_service_titles[source_index] == civil_service_titles[target_index]
             )
             title_overlap = len(shared_terms) / len(
                 title_term_sets[source_index].union(title_term_sets[target_index])
             )
             ranking_score = (
-                0.90 * role_similarity
-                + 0.06 * title_overlap
-                + 0.03 * float(same_civil_service_title)
-                + 0.01 * float(same_category)
+                BROWSING_SCORE_WEIGHTS["role_similarity"] * role_similarity
+                + BROWSING_SCORE_WEIGHTS["title_term_overlap"] * title_overlap
+                + BROWSING_SCORE_WEIGHTS["same_civil_service_title"]
+                * float(same_civil_service_title)
+                + BROWSING_SCORE_WEIGHTS["same_job_category"] * float(same_category)
             )
             candidates_by_rank[ranks[target_index]].append(
                 {
@@ -325,7 +316,6 @@ def build_job_graph(
     prepared_path: Path = Path("data/processed/description_full/prepared_jobs.csv"),
     max_candidates_per_level: int = DEFAULT_MAX_CANDIDATES_PER_LEVEL,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Create job representations and nearby suggestions from the cleaned snapshot."""
     if max_candidates_per_level < 1:
         raise ValueError("max_candidates_per_level must be at least 1")
 
@@ -334,24 +324,29 @@ def build_job_graph(
     cached = {}
     if representations_path.exists():
         previous = pd.read_parquet(representations_path)
-        for row in previous.itertuples(index=False):
-            if row.embedding_model == MODEL_NAME and len(row.embedding) == EMBEDDING_DIMENSIONS:
-                token_count = (
-                    int(row.semantic_text_token_count)
-                    if hasattr(row, "semantic_text_token_count") and pd.notna(row.semantic_text_token_count)
-                    else None
+        columns = [
+            "job_id",
+            "semantic_role_text",
+            "embedding_model",
+            "embedding",
+            "semantic_text_token_count",
+        ]
+        for job_id, text, model, vector, count in previous[columns].itertuples(
+            index=False, name=None
+        ):
+            if model == MODEL_NAME and len(vector) == EMBEDDING_DIMENSIONS:
+                cached[(job_id, text)] = (
+                    vector,
+                    int(count) if pd.notna(count) else None,
                 )
-                cached[(row.job_id, row.semantic_role_text)] = (row.embedding, token_count)
-    if all((str(job_id), text) in cached for job_id, text in zip(jobs["Job ID"], role_texts)):
+    if all(
+        (str(job_id), text) in cached
+        for job_id, text in zip(jobs["Job ID"], role_texts)
+    ):
         embeddings, token_counts = embed_roles(None, jobs, role_texts, cached)
     else:
-        from google import genai
-
         load_dotenv(Path(__file__).resolve().parents[1] / ".env")
-        api_key = os.getenv("GEMINI_API_KEY")
-        if not api_key:
-            raise ValueError("Set GEMINI_API_KEY in .env or your environment")
-        with genai.Client(api_key=api_key) as client:
+        with genai.Client() as client:
             embeddings, token_counts = embed_roles(client, jobs, role_texts, cached)
 
     representations = jobs.copy()
@@ -368,7 +363,7 @@ def build_job_graph(
     )
     input_digest = hashlib.sha256(input_path.read_bytes()).hexdigest()
     metadata = {
-        "schema_version": 5,
+        "schema_version": 6,
         "input_csv": str(input_path),
         "input_sha256": input_digest,
         "job_count": len(jobs),
@@ -376,20 +371,11 @@ def build_job_graph(
         "description_selection": {
             "source": str(prepared_path),
             "extracted": int(jobs["representation_status"].eq("extracted").sum()),
-            "original_fallback": int(jobs["representation_status"].eq("original_fallback").sum()),
+            "original_fallback": int(
+                jobs["representation_status"].eq("original_fallback").sum()
+            ),
         },
-        "semantic_source_columns": [
-            "Business Title",
-            "Civil Service Title",
-            "Job Category",
-            "Job Description",
-        ],
-        "excluded_from_semantic_similarity": [
-            "Minimum Qual Requirements",
-            "Preferred Skills",
-        ],
         "representation": {
-            "strategy": "full role text, one embedding per job",
             "model_token_limit": MODEL_MAX_INPUT_TOKENS,
             "embedding_dimensions": EMBEDDING_DIMENSIONS,
             "long_texts_counted": sum(count is not None for count in token_counts),
@@ -398,10 +384,8 @@ def build_job_graph(
             ),
         },
         "edge_rules": {
-            "allowed_target_seniority_ranks": "source rank or source rank + 1",
+            "target_rank_offsets": [0, 1],
             "max_candidates_per_seniority_rank": max_candidates_per_level,
-            "similarity_cutoff": None,
-            "category_overlap_uses": "job_categories canonical labels",
             "category_labels": sorted(
                 {
                     category
@@ -409,11 +393,7 @@ def build_job_graph(
                     for category in json.loads(value)
                 }
             ),
-            "scope": "nearby browsing suggestions only; not a route-search boundary",
-            "ranking_score": (
-                "0.90 * role_similarity + 0.06 * title_term_overlap + "
-                "0.03 * same_civil_service_title + 0.01 * same_job_category"
-            ),
+            "ranking_weights": BROWSING_SCORE_WEIGHTS,
         },
         "edge_count": len(edges),
     }
@@ -427,7 +407,6 @@ def build_job_graph(
 
 
 def parse_args() -> argparse.Namespace:
-    """Parse command-line paths and browse-suggestion bounds."""
     parser = argparse.ArgumentParser(
         description="Build Gemini job representations and nearby browsing suggestions."
     )
@@ -435,7 +414,6 @@ def parse_args() -> argparse.Namespace:
         "--input",
         type=Path,
         default=Path("data/processed/jobs_clean.csv"),
-        help="Cleaned job CSV input.",
     )
     parser.add_argument(
         "--prepared-input",
@@ -447,13 +425,11 @@ def parse_args() -> argparse.Namespace:
         "--representations-output",
         type=Path,
         default=Path("data/processed/job_representations.parquet"),
-        help="Parquet output containing source fields, semantic text, and embeddings.",
     )
     parser.add_argument(
         "--edges-output",
         type=Path,
         default=Path("data/processed/job_move_edges.parquet"),
-        help="Parquet output containing directed proposed moves and source-grounded evidence.",
     )
     parser.add_argument(
         "--metadata-output",
@@ -471,7 +447,6 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
-    """Run the job representation and browsing suggestion pipeline."""
     args = parse_args()
     representations, edges = build_job_graph(
         input_path=args.input,
@@ -483,11 +458,9 @@ def main() -> None:
     )
     sources_with_edges = edges["source_job_id"].nunique()
     print(f"Built {len(representations)} job representations with {MODEL_NAME}.")
-    print("Qualifications and preferred skills were not embedded.")
     print(
         f"Built {len(edges)} nearby browsing suggestions from {sources_with_edges} "
-        f"source jobs (at most {args.max_candidates_per_level} per target level); "
-        "not a limit on future route search."
+        f"source jobs."
     )
 
 

@@ -96,3 +96,13 @@ Add a dated entry when a new modeling problem leads to a consequential choice. R
 - **Observed:** Six live synthetic embedding requests returned valid normalized vectors, including one long input checked with `count_tokens`. Repeated calls reused the cache without new API calls. Offline checks exercised edits, session cleanup and isolation, empty inputs, limits, malformed responses, and sanitized API errors.
 - **Matching limit:** Developer and audit profiles retrieved jobs in their work domains. A software-engineering internship query retrieved civil-engineering internships. Four additional format probes showed that removing the query prefix did not resolve the domain mismatch. These are smoke checks, not a relevance benchmark. Goal resolution must add role/title evidence and reject unsuitable matches.
 - **Revisit when:** Evaluation supports a different text format, or repeat use justifies persistent user-specific storage with access and deletion rules.
+
+## 2026-10-06 — Keep goal search as candidate retrieval
+
+- **Decision:** Combine semantic and keyword ranks across the full collection. Keep profile fit separate. Remove hand-written career filters and do not label keyword coverage as suitability.
+- **Limit:** Goal relevance, diversity, and no-match handling remain open. Browsing seniority restrictions and weights remain a separate policy.
+
+## 2026-10-06 — Remove the rejected reranker experiment
+
+- **Observed:** MiniLM did not improve a tiny agent-judged pilot: development nDCG was 0.8754 for hybrid versus 0.8314 for the model; held-out values were both 0.9949. These scores covered only 3–5 judged pairs per goal, not full result-list relevance.
+- **Decision:** Remove the model wrapper, evaluation script, synthetic judgments, report, and optional dependencies. The pilot does not validate either ranking approach or an abstention threshold.

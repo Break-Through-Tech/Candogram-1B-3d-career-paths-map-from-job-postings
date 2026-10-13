@@ -3,7 +3,9 @@
 ## Starting point
 
 - `src/preprocessing.py` produces one record per job with source text, career level, categories, salary, and qualifications. `src/job_descriptions.py` selects source-grounded work passages. `src/job_graph.py` embeds those passages with Gemini Embedding 2 and saves nearby-job suggestions for browsing.
-- `src/user_profile.py` defines extensible work-profile and goal-query inputs. `src/profile_embeddings.py` embeds them with a session-only cache. See [the usage guide](docs/user-profile-embeddings.md). Job ranking and goal resolution are not implemented yet.
+- `src/user_profile.py` defines extensible work-profile and goal-query inputs. `src/profile_embeddings.py` embeds them with a session-only cache. Personalized recommendation ranking is not implemented yet.
+- `src/goal_search.py` ranks candidates and resolves exact selected IDs. Ticket 02 remains incomplete on validated relevance, diversity, and no-match handling.
+- Do not copy legacy browsing rules into goal retrieval or route search.
 - The browsing suggestions are **not** the complete set of possible career moves. This branch owns data and modeling outputs, not the platform UI. Record new modeling decisions in [MODEL_DECISIONS.md](MODEL_DECISIONS.md).
 - Local implementation tickets live in [.scratch/career-path-model/issues](.scratch/career-path-model/issues).
 - Keep `Job Category` as source text and add multi-label values from the 14 canonical categories for filters and scoring. Do not replace category text in the embedding input. Match profile requirements directly against the existing `Minimum Qual Requirements` and `Preferred Skills` text before adding structured extraction.
