@@ -40,9 +40,7 @@
   "job_count": 1228,
   "representation": {
     "embedding_dimensions": 1536,
-    "long_texts_counted": 0,
-    "maximum_counted_tokens": null,
     "model_token_limit": 8192
   },
-  "schema_version": 6
+  "schema_version": 7
 }

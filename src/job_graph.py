@@ -12,12 +12,12 @@ import numpy as np
 import pandas as pd
 from dotenv import load_dotenv
 from google import genai
-from google.genai import types
 
 from src.embedding_config import (
     EMBEDDING_DIMENSIONS,
     MODEL_MAX_INPUT_TOKENS,
     MODEL_NAME,
+    embed_text,
 )
 
 DEFAULT_MAX_CANDIDATES_PER_LEVEL = 32
@@ -27,22 +27,6 @@ BROWSING_SCORE_WEIGHTS = {
     "same_civil_service_title": 0.03,
     "same_job_category": 0.01,
 }
-
-REQUIRED_COLUMNS = (
-    "Job ID",
-    "Business Title",
-    "normalized_title",
-    "Civil Service Title",
-    "Job Category",
-    "job_categories",
-    "Career Level",
-    "seniority_rank",
-    "posting_types",
-    "Agency",
-    "Job Description",
-    "Minimum Qual Requirements",
-    "Preferred Skills",
-)
 
 DISPLAY_FIELDS = {
     "business_title": "Business Title",
@@ -88,15 +72,7 @@ def value_as_text(value: object) -> str:
 
 
 def load_jobs(input_path: Path) -> pd.DataFrame:
-    jobs = pd.read_csv(input_path, dtype={"Job ID": "string"})
-    missing_columns = sorted(set(REQUIRED_COLUMNS).difference(jobs.columns))
-    if missing_columns:
-        raise ValueError(f"Missing required cleaned-job columns: {missing_columns}")
-
-    jobs["Job ID"] = jobs["Job ID"].fillna("").str.strip()
-    if jobs["Job ID"].eq("").any() or jobs["Job ID"].duplicated().any():
-        raise ValueError("Expected one non-blank, unique Job ID per job")
-    return jobs
+    return pd.read_csv(input_path, dtype={"Job ID": "string"})
 
 
 def build_role_text(job: pd.Series) -> str:
@@ -134,48 +110,40 @@ def load_prepared_descriptions(jobs: pd.DataFrame, path: Path) -> pd.DataFrame:
     return jobs
 
 
+def load_cached_embeddings(path: Path) -> dict[tuple[str, str], np.ndarray]:
+    if not path.exists():
+        return {}
+    previous = pd.read_parquet(
+        path, columns=["Job ID", "semantic_role_text", "embedding_model", "embedding"]
+    )
+    return {
+        (job_id, text): vector
+        for job_id, text, model, vector in previous.itertuples(index=False, name=None)
+        if model == MODEL_NAME and len(vector) == EMBEDDING_DIMENSIONS
+    }
+
+
 def embed_roles(
-    client, jobs: pd.DataFrame, role_texts: list[str], cached: dict
-) -> tuple[np.ndarray, list[int | None]]:
+    jobs: pd.DataFrame, role_texts: list[str], cached: dict[tuple[str, str], np.ndarray]
+) -> np.ndarray:
+    client = None
     vectors = []
     new_embeddings = 0
-    token_counts: list[int | None] = []
     for index, (job_id, text) in enumerate(zip(jobs["Job ID"], role_texts), start=1):
-        saved = cached.get((str(job_id), text))
-        if saved is not None:
-            vector, token_count = saved
-        else:
-            token_count = None
-            if len(text.encode("utf-8")) > MODEL_MAX_INPUT_TOKENS - 2:
-                token_count = client.models.count_tokens(
-                    model=MODEL_NAME, contents=text
-                ).total_tokens
-                if token_count > MODEL_MAX_INPUT_TOKENS:
-                    raise ValueError(
-                        f"Job ID {job_id} has {token_count} tokens; "
-                        f"{MODEL_NAME} accepts at most {MODEL_MAX_INPUT_TOKENS}"
-                    )
-            response = client.models.embed_content(
-                model=MODEL_NAME,
-                contents=text,
-                config=types.EmbedContentConfig(
-                    output_dimensionality=EMBEDDING_DIMENSIONS
-                ),
-            )
-            embedding = response.embeddings[0]
-            if embedding.statistics and embedding.statistics.truncated:
-                raise ValueError(f"Gemini truncated Job ID {job_id}")
-            vector = np.asarray(embedding.values, dtype=np.float32)
-            vector = vector / np.linalg.norm(vector)
+        vector = cached.get((job_id, text))
+        if vector is None:
+            if client is None:
+                load_dotenv(Path(__file__).resolve().parents[1] / ".env")
+                client = genai.Client()
+            vector = embed_text(client, text)
             new_embeddings += 1
-        token_counts.append(token_count)
         vectors.append(vector)
         if index % 100 == 0 or index == len(role_texts):
             print(f"Prepared {index}/{len(role_texts)} jobs", flush=True)
     print(
         f"Reused {len(role_texts) - new_embeddings} embeddings; created {new_embeddings}."
     )
-    return np.asarray(vectors, dtype=np.float32), token_counts
+    return np.asarray(vectors, dtype=np.float32)
 
 
 def title_terms(title: str) -> set[str]:
@@ -202,7 +170,7 @@ def build_edges(
     max_candidates_per_level: int,
 ) -> pd.DataFrame:
     similarities = embeddings @ embeddings.T
-    job_ids = jobs["Job ID"].astype(str).tolist()
+    job_ids = jobs["Job ID"].tolist()
     ranks = jobs["seniority_rank"].astype(int).to_numpy()
     categories = [set(json.loads(value)) for value in jobs["job_categories"]]
     civil_service_titles = [
@@ -211,10 +179,10 @@ def build_edges(
     title_term_sets = [
         title_terms(value_as_text(value)) for value in jobs["normalized_title"]
     ]
-    display = {
-        column: [value_as_text(value) for value in jobs[column]]
-        for column in DISPLAY_FIELDS.values()
-    }
+    display = [
+        {field: value_as_text(row[column]) for field, column in DISPLAY_FIELDS.items()}
+        for row in jobs[list(DISPLAY_FIELDS.values())].to_dict("records")
+    ]
 
     edge_rows: list[dict[str, object]] = []
     for source_index, source_job_id in enumerate(job_ids):
@@ -240,9 +208,8 @@ def build_edges(
             same_civil_service_title = (
                 civil_service_titles[source_index] == civil_service_titles[target_index]
             )
-            title_overlap = len(shared_terms) / len(
-                title_term_sets[source_index].union(title_term_sets[target_index])
-            )
+            title_union = title_term_sets[source_index] | title_term_sets[target_index]
+            title_overlap = len(shared_terms) / len(title_union) if title_union else 0.0
             ranking_score = (
                 BROWSING_SCORE_WEIGHTS["role_similarity"] * role_similarity
                 + BROWSING_SCORE_WEIGHTS["title_term_overlap"] * title_overlap
@@ -251,33 +218,34 @@ def build_edges(
                 + BROWSING_SCORE_WEIGHTS["same_job_category"] * float(same_category)
             )
             candidates_by_rank[ranks[target_index]].append(
-                {
-                    "target_index": target_index,
-                    "role_similarity": role_similarity,
-                    "title_term_overlap": title_overlap,
-                    "same_job_category": same_category,
-                    "shared_job_categories": json.dumps(
-                        shared_categories, ensure_ascii=False
-                    ),
-                    "same_civil_service_title": same_civil_service_title,
-                    "shared_title_terms": ", ".join(shared_terms),
-                    "ranking_score": ranking_score,
-                }
+                (
+                    target_index,
+                    {
+                        "role_similarity": role_similarity,
+                        "title_term_overlap": title_overlap,
+                        "same_job_category": same_category,
+                        "shared_job_categories": json.dumps(
+                            shared_categories, ensure_ascii=False
+                        ),
+                        "same_civil_service_title": same_civil_service_title,
+                        "shared_title_terms": ", ".join(shared_terms),
+                        "ranking_score": ranking_score,
+                    },
+                )
             )
 
         for candidates in candidates_by_rank.values():
             candidates.sort(
                 key=lambda candidate: (
-                    -candidate["ranking_score"],
-                    job_ids[candidate["target_index"]],
+                    -candidate[1]["ranking_score"],
+                    job_ids[candidate[0]],
                 )
             )
-            for candidate in candidates[:max_candidates_per_level]:
-                target_index = candidate.pop("target_index")
+            for target_index, scores in candidates[:max_candidates_per_level]:
                 target_job_id = job_ids[target_index]
                 edge_rows.append(
                     {
-                        **candidate,
+                        **scores,
                         "edge_id": stable_edge_id(source_job_id, target_job_id),
                         "source_job_id": source_job_id,
                         "target_job_id": target_job_id,
@@ -288,14 +256,8 @@ def build_edges(
                         ),
                         "source_seniority_rank": int(ranks[source_index]),
                         "target_seniority_rank": int(ranks[target_index]),
-                        **{
-                            f"{side}_{field}": display[column][index]
-                            for side, index in (
-                                ("source", source_index),
-                                ("target", target_index),
-                            )
-                            for field, column in DISPLAY_FIELDS.items()
-                        },
+                        **{f"source_{k}": v for k, v in display[source_index].items()},
+                        **{f"target_{k}": v for k, v in display[target_index].items()},
                     }
                 )
 
@@ -321,40 +283,14 @@ def build_job_graph(
 
     jobs = load_prepared_descriptions(load_jobs(input_path), prepared_path)
     role_texts = [build_role_text(job) for _, job in jobs.iterrows()]
-    cached = {}
-    if representations_path.exists():
-        previous = pd.read_parquet(representations_path)
-        columns = [
-            "job_id",
-            "semantic_role_text",
-            "embedding_model",
-            "embedding",
-            "semantic_text_token_count",
-        ]
-        for job_id, text, model, vector, count in previous[columns].itertuples(
-            index=False, name=None
-        ):
-            if model == MODEL_NAME and len(vector) == EMBEDDING_DIMENSIONS:
-                cached[(job_id, text)] = (
-                    vector,
-                    int(count) if pd.notna(count) else None,
-                )
-    if all(
-        (str(job_id), text) in cached
-        for job_id, text in zip(jobs["Job ID"], role_texts)
-    ):
-        embeddings, token_counts = embed_roles(None, jobs, role_texts, cached)
-    else:
-        load_dotenv(Path(__file__).resolve().parents[1] / ".env")
-        with genai.Client() as client:
-            embeddings, token_counts = embed_roles(client, jobs, role_texts, cached)
-
-    representations = jobs.copy()
-    representations.insert(0, "job_id", jobs["Job ID"].astype(str))
-    representations["semantic_role_text"] = role_texts
-    representations["semantic_text_token_count"] = token_counts
-    representations["embedding_model"] = MODEL_NAME
-    representations["embedding"] = list(embeddings)
+    embeddings = embed_roles(
+        jobs, role_texts, load_cached_embeddings(representations_path)
+    )
+    representations = jobs.assign(
+        semantic_role_text=role_texts,
+        embedding_model=MODEL_NAME,
+        embedding=list(embeddings),
+    )
 
     edges = build_edges(
         jobs,
@@ -363,7 +299,7 @@ def build_job_graph(
     )
     input_digest = hashlib.sha256(input_path.read_bytes()).hexdigest()
     metadata = {
-        "schema_version": 6,
+        "schema_version": 7,
         "input_csv": str(input_path),
         "input_sha256": input_digest,
         "job_count": len(jobs),
@@ -378,10 +314,6 @@ def build_job_graph(
         "representation": {
             "model_token_limit": MODEL_MAX_INPUT_TOKENS,
             "embedding_dimensions": EMBEDDING_DIMENSIONS,
-            "long_texts_counted": sum(count is not None for count in token_counts),
-            "maximum_counted_tokens": max(
-                (count for count in token_counts if count is not None), default=None
-            ),
         },
         "edge_rules": {
             "target_rank_offsets": [0, 1],

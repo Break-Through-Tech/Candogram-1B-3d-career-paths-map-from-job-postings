@@ -91,7 +91,6 @@ def load_jobs(input_path: str | Path) -> pd.DataFrame:
 
 
 def combine_job_postings(jobs: pd.DataFrame) -> pd.DataFrame:
-    jobs = jobs.copy()
     jobs["Posting Type"] = jobs["Posting Type"].fillna("Unknown").str.strip()
 
     if jobs["Job ID"].isna().any():
@@ -115,7 +114,6 @@ def combine_job_postings(jobs: pd.DataFrame) -> pd.DataFrame:
 
 
 def normalize_titles(jobs: pd.DataFrame) -> pd.DataFrame:
-    jobs = jobs.copy()
     jobs["normalized_title"] = (
         jobs["Business Title"]
         .fillna("")
@@ -128,7 +126,6 @@ def normalize_titles(jobs: pd.DataFrame) -> pd.DataFrame:
 
 def normalize_job_categories(jobs: pd.DataFrame) -> pd.DataFrame:
     """Map combined source category text to a JSON list of canonical labels."""
-    jobs = jobs.copy()
 
     def extract_categories(value: object) -> str:
         text = " ".join(str(value).split())
@@ -153,9 +150,10 @@ def normalize_job_categories(jobs: pd.DataFrame) -> pd.DataFrame:
 
 
 def add_annualized_salary(jobs: pd.DataFrame) -> pd.DataFrame:
-    jobs = jobs.copy()
     jobs["normalized_salary_frequency"] = jobs["Salary Frequency"]
 
+    # Daily postings with the same titles and salary bounds share one pay rate, but
+    # only some descriptions say it is hourly, so reclassify every match.
     explicitly_hourly = (
         jobs["Job Description"]
         .fillna("")

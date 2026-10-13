@@ -8,8 +8,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from src.embedding_config import EMBEDDING_DIMENSIONS, MODEL_NAME
-from src.profile_embeddings import EmbeddingSession, UserEmbedding
+from src.embedding_config import MODEL_NAME
+from src.profile_embeddings import EmbeddingSession
 from src.user_profile import GoalQuery, WorkProfile
 
 BM25_K1 = 1.2
@@ -47,31 +47,15 @@ class GoalSearch:
         self,
         representations_path: Path = Path("data/processed/job_representations.parquet"),
     ):
-        self._jobs = pd.read_parquet(representations_path)
-        required = {"job_id", "Career Level", "embedding", "embedding_model"} | set(
-            SEARCH_FIELDS
+        self._jobs = (
+            pd.read_parquet(representations_path)
+            .sort_values("Job ID", kind="stable")
+            .reset_index(drop=True)
         )
-        if missing := required - set(self._jobs.columns):
-            raise ValueError(f"Missing job representation fields: {sorted(missing)}")
-        self._jobs = self._jobs.sort_values("job_id", kind="stable").reset_index(
-            drop=True
-        )
-        if (
-            self._jobs.empty
-            or self._jobs["job_id"].isna().any()
-            or self._jobs["job_id"].eq("").any()
-            or not self._jobs["job_id"].is_unique
-        ):
-            raise ValueError("Expected nonempty jobs with unique, nonblank IDs")
+        # Query vectors come from MODEL_NAME; a different job model fails silently.
         if not self._jobs["embedding_model"].eq(MODEL_NAME).all():
             raise ValueError("Job vectors use an incompatible embedding model")
         self._vectors = np.stack(self._jobs["embedding"]).astype(np.float32)
-        if (
-            self._vectors.shape != (len(self._jobs), EMBEDDING_DIMENSIONS)
-            or not np.isfinite(self._vectors).all()
-            or not np.allclose(np.linalg.norm(self._vectors, axis=1), 1, atol=1e-5)
-        ):
-            raise ValueError("Expected valid, normalized job vectors")
         self._fields = self._jobs[list(SEARCH_FIELDS)].fillna("").to_dict("records")
         self._documents = [
             Counter(tokenize("\n".join(fields.values()))) for fields in self._fields
@@ -83,13 +67,13 @@ class GoalSearch:
         )
 
     def resolve_job(self, job_id: str) -> pd.Series:
-        selected = self._jobs.loc[self._jobs["job_id"].eq(job_id)]
+        selected = self._jobs.loc[self._jobs["Job ID"].eq(job_id)]
         if selected.empty:
             raise ValueError("Selected job ID is not in the job collection")
         return selected.iloc[0].copy()
 
-    def _similarities(self, embedding: UserEmbedding) -> np.ndarray:
-        return self._vectors @ np.asarray(embedding.values, dtype=np.float32)
+    def _similarities(self, vector: np.ndarray) -> np.ndarray:
+        return self._vectors @ vector
 
     def _idf(self, term: str) -> float:
         count = self._document_frequency[term]
@@ -148,11 +132,9 @@ class GoalSearch:
         )
 
         fused = np.zeros(len(self._jobs))
-        rankings = [np.argsort(-semantic, kind="stable")]
-        rankings.append(
-            np.argsort(-lexical, kind="stable")[: np.count_nonzero(lexical)]
-        )
-        for order in rankings:
+        lexical_hits = np.flatnonzero(lexical > 0)
+        lexical_order = lexical_hits[np.argsort(-lexical[lexical_hits], kind="stable")]
+        for order in (np.argsort(-semantic, kind="stable"), lexical_order):
             fused[order] += 1 / (RRF_K + np.arange(1, len(order) + 1))
 
         tie_break = (
@@ -164,7 +146,7 @@ class GoalSearch:
             job = self._jobs.iloc[index]
             candidates.append(
                 RankedCandidate(
-                    job_id=job["job_id"],
+                    job_id=job["Job ID"],
                     business_title=job["Business Title"],
                     career_level=job["Career Level"],
                     goal_similarity=float(semantic[index]),

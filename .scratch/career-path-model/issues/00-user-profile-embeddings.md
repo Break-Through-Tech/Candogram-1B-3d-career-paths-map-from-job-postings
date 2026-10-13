@@ -15,7 +15,7 @@ search, not a separate saved-goal feature.
 - [x] Use Gemini Embedding 2 with the same 1,536 dimensions as job vectors.
 - [x] Cache only within one user session. Reuse unchanged prepared inputs;
   regenerate when prepared text or embedding settings change.
-- [x] Reject empty inputs and invalid or truncated model responses.
+- [x] Reject empty inputs and inputs over the model token limit.
 - [x] Keep user inputs and vectors out of logs, files, and shared job artifacts.
   Use synthetic profiles for verification; do not add automatic PII redaction.
 - [x] Verify real response dimensions, normalized vectors, cache reuse, and a

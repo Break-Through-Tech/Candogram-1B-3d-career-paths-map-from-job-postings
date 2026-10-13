@@ -1,7 +1,7 @@
 [project]
 name = "candogram-1b-3d-career-paths-map-from-job-postings"
 version = "0.1.0"
-description = "Add your description here"
+description = "Career-path graph and goal search over NYC job postings using Gemini embeddings."
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [

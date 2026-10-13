@@ -16,33 +16,20 @@ Add a dated entry when a new modeling problem leads to a consequential choice. R
 - **Instead of:** Replacing source salary values, inferring work schedules from free text, or annualizing a zero minimum as valid pay.
 - **Revisit when:** The source provides verified work hours or days per year, or NYC compensation rules specify different standard annualization factors.
 
-## 2026-09-30 — Add canonical multi-label job categories
+## 2026-09-30 — Use canonical multi-label job categories
 
-- **Problem:** The source `Job Category` field combines multiple category labels in strings with inconsistent separators.
-- **Decision:** Preserve the raw field and map each value to one or more of the 14 canonical categories for filtering and graph scoring. Match whole category phrases, serialize labels as JSON, and keep raw `Job Category` in the Gemini embedding input.
-- **Instead of:** Splitting on punctuation or replacing the source category with a single label.
-- **Revisit when:** The category taxonomy changes or review finds category assignments that do not match the source.
-
-## 2026-09-30 — Extract requirements with AI (superseded)
-
-- **Problem:** Skills, education, experience, and licenses are embedded in free-text qualification fields.
-- **Decision:** Use AI to extract structured requirements from `Minimum Qual Requirements` and `Preferred Skills`. Preserve the source text, distinguish required from preferred items, and retain evidence for each extraction. Exclude profile PII from model requests.
-- **Instead of:** Treating raw text as structured values or relying only on string patterns.
-- **Revisit when:** Extraction review shows the chosen output fields, labels, or AI model do not support reliable profile matching.
+- **Problem:** The source `Job Category` field combines multiple category labels with inconsistent separators. Commas also appear inside category names, so delimiter-based splitting is ambiguous.
+- **Decision:** Preserve the raw field and map each value to every matching label among the 14 canonical categories by whole-phrase matching. Store the labels as a JSON array in `job_categories` and use label overlap for filters and graph category scoring. Keep raw `Job Category` in the Gemini embedding input.
+- **Instead of:** Splitting on punctuation, replacing the source category with a single label, or changing job embeddings for a filter-and-scoring feature.
+- **Revisit when:** A source category cannot be mapped, the category taxonomy changes, or review finds a label assignment error.
 
 ## 2026-09-30 — Use existing qualification text first
 
 - **Problem:** The cleaned jobs already retain minimum qualifications and preferred skills, but no user-to-job comparison exists yet.
 - **Decision:** Compare profile facts directly with those source text fields first. Do not create a duplicate set of extracted requirement fields until evaluation shows that direct comparison misses important gaps.
 - **Instead of:** Running an AI extraction pass over the entire job corpus before measuring whether the structured fields are needed.
+- **Supersedes:** An earlier plan to extract structured required and preferred items, with evidence, from `Minimum Qual Requirements` and `Preferred Skills`. Any future extraction must still exclude profile PII from model requests.
 - **Revisit when:** Reviewed profile-to-job matches show that raw requirement text cannot support useful qualification comparisons.
-
-## 2026-09-30 — Use canonical categories for filters and scoring
-
-- **Problem:** Raw category values combine multiple category names and contain punctuation that makes delimiter-based splitting ambiguous.
-- **Decision:** Map source values to the 14 known category phrases, store all matching labels in `job_categories`, and use label overlap for category scoring. Preserve raw category text in the Gemini role embedding.
-- **Instead of:** Splitting on commas or changing job embeddings for a filter-and-scoring feature.
-- **Revisit when:** A source category cannot be mapped, the category set changes, or review finds a label assignment error.
 
 ## 2026-09-30 — Defer posting windows and position counts
 
@@ -51,49 +38,27 @@ Add a dated entry when a new modeling problem leads to a consequential choice. R
 - **Instead of:** Collapsing multiple posting windows into one job-level open/closed value or treating `9999` as a verified vacancy count.
 - **Revisit when:** The prototype needs vacancy filtering and the source semantics and posting-window grain are established.
 
-## 2026-10-06 — Pilot source-grounded duty extraction
+## 2026-10-06 — Embed selected work passages instead of full descriptions
 
-- **Problem:** Full descriptions mix actual duties with agency background, benefits, and hiring instructions.
-- **Decision:** Extract verbatim duty passages for 40 jobs with Gemini 3.8 Flash. Include two sampled jobs for each canonical category, the Systems Developer example, and short and long descriptions. Preserve descriptions and verify each passage by exact substring matching. Save the sample, extraction instructions, model, and results separately from the existing job representations.
-- **Instead of:** Rewriting descriptions, replacing embeddings immediately, or extracting structured qualifications in this pass.
-- **Observed:** All 40 jobs completed; 289 passages matched their source descriptions exactly. This establishes source matching, not duty completeness or better recommendations. Gemini 2.5 Flash rejected the first request as unavailable to new users, so the pilot used the API's recommended Gemini 3.8 Flash.
-- **Revisit when:** Human review identifies omitted duties or irrelevant passages, or a neighbor comparison shows no improvement over full-description and title-only inputs.
-
-## 2026-10-06 — Keep full descriptions after the first extraction pilot
-
-- **Problem:** Source matching alone does not show whether selected duties preserve role meaning or improve nearby-job retrieval.
-- **Decision:** Keep full-description embeddings as the default. Compare the 40 pilot queries against the fixed 1,228-job index and use a separate, method-blinded automated neighbor evaluator. Preserve category and title fields when replacing description text to isolate the change.
-- **Observed:** The final mean relevance score rises from 1.275 to 1.340 on a 0–2 scale. Duties queries improve 11 jobs, tie 16, and worsen 13. Six extractions omit important detail. These results do not justify applying the current prompt to the whole corpus.
-- **Instead of:** Treating exact quotes or a small average gain as proof that description trimming universally improves recommendations.
-- **Revisit when:** Instructions preserve specialties and role context, and a repeated comparison plus independent human review supports rollout.
-- **Prompt revision:** Explain the embedding and career-map purpose, preserve all important work and role context without a passage-count target, and check the whole description. Invalidate saved extractions when the prompt, model, schema, or source input changes.
-- **Revised pilot:** Deleted the old outputs and reran the same 40 jobs. The automated review rated all 40 as preserving defining work. The separate blinded neighbor score was 1.345 for selected work passages versus 1.265 for full text. Selected queries improved 14 jobs, tied 16, and worsened 10. The median text reduction was 45%. These are automated pilot results, not independent human approval.
-- **Source matching:** Restore original source spans when model output differs only in whitespace. Keep raw model passages for inspection and reject all other differences. Nine passages needed whitespace restoration; one passage with changed quotation marks remains rejected and its job is flagged for review.
-
-## 2026-10-06 — Process all descriptions and compare complete indexes
-
-- **Decision:** Process all 1,228 descriptions with the revised embedding-aware prompt. Keep original descriptions. If any passage is rejected or no usable text remains, flag the job and retain its original description in the experimental collection.
-- **Comparison:** Build separate full-text, cleaned-text, and title-only indexes. Compare top-five neighbors for the 40 pilot jobs and 40 fresh jobs selected with seed 2026. Use the separate method-blinded automated evaluator and report the fresh cohort separately.
-- **Observed:** 1,200 jobs use extracted text; 28 use original-text fallbacks. Accepted passages match their sources exactly. Across 80 queries, mean relevance rises from 1.330 to 1.473 on a 0–2 scale. Cleaned neighbors improve 31 jobs, tie 39, and worsen 10. In the fresh cohort, they improve 12, tie 23, and worsen five.
-- **Limit:** These are automated judgments, not independent human validation. Existing default embeddings and graph outputs remain unchanged. The cleaned representation artifact and the flagged jobs are saved under `data/processed/description_full/`.
-
-## 2026-10-06 — Use selected descriptions in the default job graph
-
-- **Problem:** The full run produced better-performing embeddings from selected work passages, but the default graph command still embedded original descriptions.
-- **Decision:** Make prepared descriptions the default embedding input. Retain original descriptions beside them. Use the original for the 28 flagged jobs and for new jobs not yet processed. Reuse matching Gemini vectors, rebuild browsing links, then replace the old default vectors and links.
-- **Evidence:** The model-blinded comparison scored cleaned neighbors 1.473 versus 1.330 for full descriptions on 80 queries. The replacement contains 1,228 normalized vectors; all match the validated cleaned collection, and 77,278 rebuilt links have unique endpoints.
-- **Instead of:** Copying an embedding file without changing its generating pipeline, or deleting old vectors before verifying the replacement.
-- **Revisit when:** New data or independent review changes which passages best represent a job.
+- **Problem:** Full descriptions mix actual duties with agency background, benefits, and hiring instructions. Source matching alone does not show whether selected passages preserve role meaning or improve nearby-job retrieval.
+- **Decision:** Use Gemini 3.8 Flash to select verbatim work passages from every description. The prompt explains the embedding and career-map purpose, preserves all important work and role context without a passage-count target, and reads the whole description. Embed the selected passages with the business title, civil-service title, and raw category, and retain original descriptions beside them. Invalidate saved extractions when the prompt, model, schema, or source input changes. Gemini 2.5 Flash was unavailable to new users, so the pipeline uses the API's recommended Gemini 3.8 Flash.
+- **Source matching:** Accept a passage only when it is an exact source substring. When model output differs only in whitespace, restore the original source span. Keep raw model passages for inspection and reject all other differences. In the revised pilot, nine passages needed whitespace restoration; one with changed quotation marks was rejected and its job flagged.
+- **Fallback:** If any passage is rejected or no usable text remains, flag the job and embed its original description. New jobs not yet processed also use the original. In this snapshot, 1,200 jobs use selected passages and 28 use the fallback. Extraction outputs and flagged jobs are saved under `data/processed/description_full/`.
+- **Evidence:** A method-blinded automated evaluator compared top-five neighbors for 40 pilot jobs and 40 fresh jobs selected with seed 2026 against full-text, selected-text, and title-only indexes. Across the 80 queries, mean relevance rose from 1.330 (full descriptions) to 1.473 (selected passages) on a 0–2 scale; 31 jobs improved, 39 tied, and 10 worsened. The fresh cohort improved 12, tied 23, and worsened five. These are automated judgments, not independent human validation.
+- **Pilots:** The first 40-job pilot sampled two jobs per canonical category, the Systems Developer example, and short and long descriptions. All 40 completed and 289 passages matched their sources exactly, but neighbor relevance moved only from 1.275 to 1.340 (11 improved, 16 tied, 13 worsened) and six extractions omitted important detail, so full descriptions stayed the default. Rerunning the same 40 jobs with the revised prompt, an automated review rated all 40 as preserving defining work; relevance moved from 1.265 to 1.345 (14 improved, 16 tied, 10 worsened) with a 45% median text reduction.
+- **Rollout:** The default graph reused matching Gemini vectors and replaced the old vectors and links only after verification: 1,228 normalized vectors matched the validated collection, and 77,278 rebuilt links had unique endpoints.
+- **Instead of:** Rewriting descriptions, extracting structured qualifications in this pass, treating exact quotes or a small average gain as proof that trimming improves recommendations, copying an embedding file without changing its generating pipeline, or deleting old vectors before verifying the replacement.
+- **Revisit when:** New data or independent human review shows omitted duties, irrelevant passages, or a better representation of a job.
 
 ## 2026-10-06 — Embed work profiles and goal queries within a session
 
 - **Problem:** The model has job vectors but no inputs for a person's current work or desired destination.
 - **Decision:** Use separate, extensible Python data models for work profiles and natural-language goal queries. The query is the goal feature, not a separate search beside a saved goal. Keep interests with the goal. Select embedding fields explicitly in text preparation. Education, licenses, and experience years remain separate facts.
-- **Embedding settings:** Use the existing Gemini Embedding 2 model with 1,536 dimensions. Share settings with job embeddings. Apply the official text search-query prefix to user inputs. Preserve existing job vectors; a paired query/document-format comparison remains future evaluation work.
-- **Cache:** Keep vectors in memory in one `EmbeddingSession` per user session. Key them by prepared text, input type, model, dimensions, and text-format version. Reuse exact cached results without renormalizing them. Clear the cache at session end; the app must also release its own references.
-- **Privacy:** Accept only work-related fields. Do not log or save user text or vectors. Do not build automatic PII redaction in this pass. The calling app must supply PII-free text; this module does not detect personal details in free text. Verification uses synthetic inputs only.
+- **Embedding settings:** Use the existing Gemini Embedding 2 model with 1,536 dimensions. Share settings with job embeddings. Apply the official text search-query prefix to user inputs. Preserve existing job vectors; a paired query/document-format comparison remains future evaluation work. Job and user text share one embedding helper; it trusts SDK responses and checks only the input token limit, because Gemini silently truncates longer input.
+- **Cache:** Keep vectors in memory in one `EmbeddingSession` per user session. Key them by input type and prepared text; model settings are constant within a session. Reuse exact cached results without renormalizing them. Clear the cache at session end; the app must also release its own references.
+- **Privacy:** Accept only work-related fields. Do not log or save user text or vectors: user-input dataclasses disable `repr`, and embedding API errors are re-raised without the SDK error chain. Do not build automatic PII redaction in this pass. The calling app must supply PII-free text; this module does not detect personal details in free text. Verification uses synthetic inputs only.
 - **Instead of:** Combining current work and desired work into one vector, automatically embedding every new model field, persisting user embeddings with shared job artifacts, or implementing job ranking in the embedding ticket.
-- **Observed:** Six live synthetic embedding requests returned valid normalized vectors, including one long input checked with `count_tokens`. Repeated calls reused the cache without new API calls. Offline checks exercised edits, session cleanup and isolation, empty inputs, limits, malformed responses, and sanitized API errors.
+- **Observed:** Six live synthetic embedding requests returned valid normalized vectors, including one long input checked with `count_tokens`. Repeated calls reused the cache without new API calls. Offline checks exercised edits, session cleanup and isolation, empty inputs, limits, and sanitized API errors.
 - **Matching limit:** Developer and audit profiles retrieved jobs in their work domains. A software-engineering internship query retrieved civil-engineering internships. Four additional format probes showed that removing the query prefix did not resolve the domain mismatch. These are smoke checks, not a relevance benchmark. Goal resolution must add role/title evidence and reject unsuitable matches.
 - **Revisit when:** Evaluation supports a different text format, or repeat use justifies persistent user-specific storage with access and deletion rules.
 

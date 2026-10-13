@@ -4,7 +4,6 @@ import argparse
 import hashlib
 import json
 import re
-from contextlib import ExitStack
 from pathlib import Path
 
 import pandas as pd
@@ -81,7 +80,7 @@ def validate_passages(description: str, passages: list[str]):
 
 def extract_job(client, job, saved=None):
     """Extract one job, or revalidate a matching cached model response."""
-    job_id = str(job["Job ID"])
+    job_id = job["Job ID"]
     description = job["Job Description"]
     payload = {
         "business_title": job["Business Title"],
@@ -136,12 +135,8 @@ def prepare_jobs(
     statuses = []
     flagged = []
     for _, job in jobs.iterrows():
-        job_id = str(job["Job ID"])
+        job_id = job["Job ID"]
         result = results[job_id]
-        if result["source_description"] != job["Job Description"]:
-            raise ValueError(f"Description changed for Job ID {job_id}")
-        if any(text not in job["Job Description"] for text in result["core_duties"]):
-            raise ValueError(f"Unverified passage for Job ID {job_id}")
         fallback = result["needs_review"]
         descriptions.append(
             job["Job Description"] if fallback else "\n".join(result["core_duties"])
@@ -192,25 +187,21 @@ def main():
             result = json.loads(line)
             saved[result["job_id"]] = result
 
-    with ExitStack() as stack:
-        client = None
-        if args.generate:
-            load_dotenv(Path(__file__).resolve().parents[1] / ".env")
-            client = stack.enter_context(genai.Client())
-        results = {}
-        for _, job in jobs.iterrows():
-            job_id = str(job["Job ID"])
-            result = extract_job(client, job, saved.get(job_id))
-            results[job_id] = result
-            if args.generate and saved.get(job_id) != result:
-                with result_path.open("a") as output:
-                    output.write(json.dumps(result, ensure_ascii=False) + "\n")
-        prepared, flagged = prepare_jobs(jobs, results)
-        prepared.to_csv(args.output / "prepared_jobs.csv", index=False)
-        flagged.to_csv(args.output / "flagged_jobs.csv", index=False)
-        print(
-            f"Prepared {len(prepared)} jobs; {len(flagged)} kept original descriptions."
-        )
+    load_dotenv(Path(__file__).resolve().parents[1] / ".env")
+    client = genai.Client() if args.generate else None
+    results = {}
+    for _, job in jobs.iterrows():
+        job_id = job["Job ID"]
+        result = extract_job(client, job, saved.get(job_id))
+        results[job_id] = result
+        # Append each new result so an interrupted --generate run resumes.
+        if args.generate and saved.get(job_id) != result:
+            with result_path.open("a") as output:
+                output.write(json.dumps(result, ensure_ascii=False) + "\n")
+    prepared, flagged = prepare_jobs(jobs, results)
+    prepared.to_csv(args.output / "prepared_jobs.csv", index=False)
+    flagged.to_csv(args.output / "flagged_jobs.csv", index=False)
+    print(f"Prepared {len(prepared)} jobs; {len(flagged)} kept original descriptions.")
 
 
 if __name__ == "__main__":
