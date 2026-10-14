@@ -4,22 +4,30 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap"
+      rel="stylesheet"
+    />
     <title>Career Paths Map</title>
   </head>
   <body>
     <main id="map"></main>
 
-    <aside id="panel">
+    <aside id="panel" class="metal-rim">
+      <div class="panel-inner">
       <header>
-        <h1>Career Paths Map</h1>
+        <p class="eyebrow">NYC career galaxy</p>
+        <h1 class="chrome-text">Career Paths Map</h1>
         <p class="muted" id="job-count"></p>
         <p id="placeholder-note" class="note" hidden>
-          Placeholder layout: points are grouped by job category and stacked by seniority until the
-          embedding model's 3D coordinates are ready.
+          Every star is a job, colored by seniority. Placeholder layout: stars are grouped by job
+          category and stacked by seniority until the embedding model's 3D coordinates are ready.
         </p>
       </header>
 
-      <section class="profile">
+      <section class="profile metal-rim">
         <p id="profile-summary"></p>
         <button id="edit-profile" class="link"></button>
       </section>
@@ -68,6 +76,7 @@
         <h2>Seniority</h2>
         <ul id="legend"></ul>
       </section>
+      </div>
     </aside>
 
     <div id="tooltip" hidden></div>

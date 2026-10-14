@@ -29,7 +29,7 @@ const state = {
 
 $('#placeholder-note').hidden = !placeholder
 $('#legend').innerHTML = SENIORITY_LABELS.map(
-  (label, rank) => `<li><span class="swatch" style="background:${SENIORITY_COLORS[rank]}"></span>${label}</li>`,
+  (label, rank) => `<li><span class="swatch" style="background:${SENIORITY_COLORS[rank]};color:${SENIORITY_COLORS[rank]}"></span>${label}</li>`,
 ).join('')
 const titles = [...new Set(jobs.map((job) => job.title))].sort()
 $('#titles').innerHTML = titles.map((t) => `<option value="${escapeHtml(t)}"></option>`).join('')
@@ -44,7 +44,13 @@ const map = createScene($('#map'), jobs, {
     tooltip.style.top = `${event.clientY + 14}px`
   },
   onSelect: (job) => select(job),
+  getInsets() {
+    const panel = $('#panel').getBoundingClientRect()
+    const docked = panel.top > window.innerHeight * 0.3 // bottom sheet on narrow screens
+    return docked ? { left: 0, bottom: window.innerHeight - panel.top } : { left: panel.right, bottom: 0 }
+  },
 })
+new ResizeObserver(() => map.resize()).observe($('#panel'))
 
 // --- Filters ----------------------------------------------------------------
 
@@ -155,7 +161,7 @@ function readinessBadge(job) {
 function jobCard(job, { index, label } = {}) {
   return `
     <button class="job-card" data-id="${job.id}" ${index != null ? `data-index="${index}"` : ''}>
-      <span class="swatch" style="background:${SENIORITY_COLORS[job.seniority_rank]}"></span>
+      <span class="swatch" style="background:${SENIORITY_COLORS[job.seniority_rank]};color:${SENIORITY_COLORS[job.seniority_rank]}"></span>
       <span class="job-card-body">
         ${label ? `<span class="step-label">${escapeHtml(label)}</span>` : ''}
         <span class="step-title">${escapeHtml(job.title)}</span>

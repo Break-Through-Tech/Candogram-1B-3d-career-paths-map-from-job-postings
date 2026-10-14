@@ -7,16 +7,19 @@ import { compactMoney, escapeHtml, median } from './format.js'
 const GOALS = [
   {
     value: 'explore',
+    icon: '✦',
     label: "I'm exploring",
     detail: "I'm not sure what I want yet and want to see what's out there.",
   },
   {
     value: 'target',
+    icon: '◎',
     label: 'I have a job in mind',
     detail: 'Show me the steps that lead to it.',
   },
   {
     value: 'current',
+    icon: '↗',
     label: 'I want to grow from where I am',
     detail: 'Start from my current or most recent job and show where it can lead.',
   },
@@ -49,7 +52,7 @@ export function openWizard({ jobs, categories, initial, onDone }) {
   const root = document.createElement('div')
   root.className = 'wizard-backdrop'
   root.innerHTML = `
-    <div class="wizard" role="dialog" aria-modal="true" aria-labelledby="wizard-title">
+    <div class="wizard metal-rim" role="dialog" aria-modal="true" aria-labelledby="wizard-title">
       <div class="wizard-progress"><div class="wizard-progress-bar"></div></div>
       <p class="wizard-step-count"></p>
       <h2 id="wizard-title"></h2>
@@ -58,14 +61,15 @@ export function openWizard({ jobs, categories, initial, onDone }) {
       <div class="wizard-actions">
         <button class="link" data-action="skip-all">Skip to the map</button>
         <span class="spacer"></span>
-        <button class="secondary" data-action="back">Back</button>
+        <button class="secondary metal-rim" data-action="back">Back</button>
         <button class="primary" data-action="next">Next</button>
       </div>
     </div>`
   document.body.appendChild(root)
 
   const $ = (selector) => root.querySelector(selector)
-  let index = 0
+  // First-time visitors see an intro screen (index -1) before the questions.
+  let index = initial?.goal ? 0 : -1
 
   function steps() {
     const list = [goalStep]
@@ -228,8 +232,11 @@ export function openWizard({ jobs, categories, initial, onDone }) {
       .map(
         (o) => `
         <button class="choice ${o.selected ? 'selected' : ''}" data-value="${escapeHtml(o.value)}" aria-pressed="${o.selected}">
-          <span class="choice-label">${escapeHtml(o.label)}</span>
-          ${o.detail ? `<span class="choice-detail">${escapeHtml(o.detail)}</span>` : ''}
+          ${o.icon ? `<span class="choice-icon" aria-hidden="true">${o.icon}</span>` : ''}
+          <span class="choice-text">
+            <span class="choice-label">${escapeHtml(o.label)}</span>
+            ${o.detail ? `<span class="choice-detail">${escapeHtml(o.detail)}</span>` : ''}
+          </span>
         </button>`,
       )
       .join('')}</div>`
@@ -248,19 +255,48 @@ export function openWizard({ jobs, categories, initial, onDone }) {
     )
   }
 
+  function renderIntro() {
+    $('.wizard').classList.add('intro')
+    $('#wizard-title').innerHTML = `
+      <span class="intro-orbit" aria-hidden="true"><span class="intro-planet"></span></span>
+      <span class="intro-title chrome-text">Every job is a star.</span>`
+    $('.wizard-why').innerHTML = `<span class="intro-copy" style="display:block">
+      Explore ${jobs.length.toLocaleString()} New York City jobs as a galaxy, from entry level to executive.
+      Answer five quick questions and we'll chart a path that fits you.</span>`
+    $('.wizard-body').innerHTML = ''
+    $('.wizard-body').style.minHeight = '0'
+    $('.wizard-body').style.marginTop = '0'
+    $('[data-action="back"]').hidden = true
+    const next = $('[data-action="next"]')
+    next.textContent = 'Chart my path'
+    next.className = 'primary'
+    next.disabled = false
+    $('[data-action="skip-all"]').textContent = 'Just let me look around'
+  }
+
   function render() {
+    if (index < 0) return renderIntro()
+    $('.wizard').classList.remove('intro')
+    $('.wizard-body').style.minHeight = ''
+    $('.wizard-body').style.marginTop = ''
+    $('[data-action="skip-all"]').textContent = 'Skip to the map'
     const list = steps()
     const step = list[index]
     $('.wizard-step-count').textContent = `Step ${index + 1} of ${list.length}`
     $('.wizard-progress-bar').style.width = `${((index + 1) / list.length) * 100}%`
     $('#wizard-title').textContent = step.title
     $('.wizard-why').textContent = step.why
-    step.render($('.wizard-body'))
+    // A fresh element replays the entrance animation on every step.
+    const body = document.createElement('div')
+    body.className = 'wizard-step'
+    $('.wizard-body').replaceChildren(body)
+    step.render(body)
     update()
   }
 
   /** Refresh the buttons without re-rendering the step (keeps input focus). */
   function update() {
+    if (index < 0) return
     const list = steps()
     const step = list[index]
     const isLast = index === list.length - 1
@@ -294,7 +330,7 @@ export function openWizard({ jobs, categories, initial, onDone }) {
       index -= 1
       render()
     } else if (action === 'next') {
-      if (index === steps().length - 1) finish(draft)
+      if (index >= 0 && index === steps().length - 1) finish(draft)
       else {
         index += 1
         render()
