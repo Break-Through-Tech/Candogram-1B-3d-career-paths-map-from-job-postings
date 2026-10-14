@@ -38,33 +38,6 @@ function glowTexture({ ring = false } = {}) {
   return texture
 }
 
-/** Painted background: slate navy with soft color glows. */
-function nebulaTexture() {
-  const canvas = document.createElement('canvas')
-  canvas.width = 1600
-  canvas.height = 1000
-  const ctx = canvas.getContext('2d')
-  ctx.fillStyle = '#1a232e'
-  ctx.fillRect(0, 0, canvas.width, canvas.height)
-  // Soft glows in the Metaversus palette.
-  const clouds = [
-    [1150, 280, 560, 'rgba(149, 66, 232, 0.30)'],
-    [380, 760, 520, 'rgba(45, 72, 152, 0.45)'],
-    [1450, 860, 380, 'rgba(52, 172, 199, 0.18)'],
-    [200, 160, 320, 'rgba(141, 57, 163, 0.18)'],
-  ]
-  for (const [x, y, r, color] of clouds) {
-    const gradient = ctx.createRadialGradient(x, y, 0, x, y, r)
-    gradient.addColorStop(0, color)
-    gradient.addColorStop(1, 'rgba(0,0,0,0)')
-    ctx.fillStyle = gradient
-    ctx.fillRect(0, 0, canvas.width, canvas.height)
-  }
-  const texture = new THREE.CanvasTexture(canvas)
-  texture.colorSpace = THREE.SRGBColorSpace
-  return texture
-}
-
 function starfield(count = 1500) {
   const positions = new Float32Array(count * 3)
   const colors = new Float32Array(count * 3)
@@ -105,7 +78,7 @@ export function createScene(container, jobs, { onHover, onSelect, getInsets = ()
   container.appendChild(renderer.domElement)
 
   const scene = new THREE.Scene()
-  scene.background = nebulaTexture()
+  scene.background = new THREE.Color('#1a232e')
 
   const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 500)
   camera.position.set(15, 7, 17)
