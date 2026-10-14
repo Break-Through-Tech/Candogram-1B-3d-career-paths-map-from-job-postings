@@ -10,8 +10,8 @@ export const SENIORITY_COLORS = ['#67e8f9', '#86efac', '#fde047', '#fb923c', '#f
 
 const POINT_RADIUS = 0.085
 const DIM_FACTOR = 0.09 // faded but still visible; below the bloom threshold
-const HIDDEN_COLOR = new THREE.Color('#141426')
-const PATH_COLOR = new THREE.Color('#e9d5ff')
+const HIDDEN_COLOR = new THREE.Color('#26303f')
+const PATH_COLOR = new THREE.Color('#ffffff')
 
 const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
 
@@ -38,20 +38,20 @@ function glowTexture({ ring = false } = {}) {
   return texture
 }
 
-/** Painted nebula used as the scene background. */
+/** Painted background: slate navy with soft color glows. */
 function nebulaTexture() {
   const canvas = document.createElement('canvas')
   canvas.width = 1600
   canvas.height = 1000
   const ctx = canvas.getContext('2d')
-  ctx.fillStyle = '#05040d'
+  ctx.fillStyle = '#1a232e'
   ctx.fillRect(0, 0, canvas.width, canvas.height)
+  // Soft glows in the Metaversus palette.
   const clouds = [
-    [1150, 260, 620, 'rgba(124, 58, 237, 0.42)'],
-    [380, 760, 560, 'rgba(37, 99, 235, 0.30)'],
-    [900, 640, 420, 'rgba(219, 39, 119, 0.20)'],
-    [250, 180, 380, 'rgba(14, 165, 233, 0.16)'],
-    [1450, 850, 420, 'rgba(76, 29, 149, 0.35)'],
+    [1150, 280, 560, 'rgba(149, 66, 232, 0.30)'],
+    [380, 760, 520, 'rgba(45, 72, 152, 0.45)'],
+    [1450, 860, 380, 'rgba(52, 172, 199, 0.18)'],
+    [200, 160, 320, 'rgba(141, 57, 163, 0.18)'],
   ]
   for (const [x, y, r, color] of clouds) {
     const gradient = ctx.createRadialGradient(x, y, 0, x, y, r)
@@ -65,7 +65,7 @@ function nebulaTexture() {
   return texture
 }
 
-function starfield(count = 3500) {
+function starfield(count = 1500) {
   const positions = new Float32Array(count * 3)
   const colors = new Float32Array(count * 3)
   const tint = new THREE.Color()
@@ -84,11 +84,11 @@ function starfield(count = 3500) {
   return new THREE.Points(
     geometry,
     new THREE.PointsMaterial({
-      size: 0.9,
+      size: 0.7,
       map: glowTexture(),
       vertexColors: true,
       transparent: true,
-      opacity: 0.8,
+      opacity: 0.45,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
     }),
@@ -147,7 +147,7 @@ export function createScene(container, jobs, { onHover, onSelect, getInsets = ()
   // Bloom makes bright stars glow; dimmed stars sit under the threshold.
   const composer = new EffectComposer(renderer)
   composer.addPass(new RenderPass(scene, camera))
-  const bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.75, 0.5, 0.24)
+  const bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.4, 0.4, 0.3)
   composer.addPass(bloom)
   composer.addPass(new OutputPass())
 
@@ -268,7 +268,7 @@ export function createScene(container, jobs, { onHover, onSelect, getInsets = ()
         new THREE.Mesh(
           new THREE.TubeGeometry(curve, segments, 0.09, 12, false),
           new THREE.MeshBasicMaterial({
-            color: '#a78bfa',
+            color: '#34acc7',
             transparent: true,
             opacity: 0.18,
             depthWrite: false,

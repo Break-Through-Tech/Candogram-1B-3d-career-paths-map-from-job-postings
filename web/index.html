@@ -7,7 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap"
       rel="stylesheet"
     />
     <title>Career Paths Map</title>
@@ -15,19 +15,19 @@
   <body>
     <main id="map"></main>
 
-    <aside id="panel" class="metal-rim">
+    <aside id="panel">
       <div class="panel-inner">
       <header>
-        <p class="eyebrow">NYC career galaxy</p>
-        <h1 class="chrome-text">Career Paths Map</h1>
+        <p class="eyebrow">| NYC Career Paths</p>
+        <h1>Career Paths Map</h1>
         <p class="muted" id="job-count"></p>
         <p id="placeholder-note" class="note" hidden>
-          Every star is a job, colored by seniority. Placeholder layout: stars are grouped by job
-          category and stacked by seniority until the embedding model's 3D coordinates are ready.
+          Each dot is a job, colored by seniority. For now, jobs are grouped by field and stacked by
+          seniority. The real layout comes from the embedding model.
         </p>
       </header>
 
-      <section class="profile metal-rim">
+      <section class="profile">
         <p id="profile-summary"></p>
         <button id="edit-profile" class="link"></button>
       </section>

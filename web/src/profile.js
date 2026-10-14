@@ -3,11 +3,11 @@
 
 export const EDUCATION_LEVELS = [
   'No diploma yet',
-  'High school / GED',
-  "Associate's",
-  "Bachelor's",
-  "Master's",
-  'Doctorate / professional',
+  'High school diploma or GED',
+  'Associate degree',
+  "Bachelor's degree",
+  "Master's degree",
+  'Doctorate or professional degree',
 ]
 
 // Shorter labels for a job's requirement ("Needs a Bachelor's").

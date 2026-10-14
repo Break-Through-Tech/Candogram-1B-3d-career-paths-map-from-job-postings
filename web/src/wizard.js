@@ -5,29 +5,14 @@ import { EDUCATION_LEVELS, EMPTY_PROFILE } from './profile.js'
 import { compactMoney, escapeHtml, median } from './format.js'
 
 const GOALS = [
-  {
-    value: 'explore',
-    icon: '✦',
-    label: "I'm exploring",
-    detail: "I'm not sure what I want yet and want to see what's out there.",
-  },
-  {
-    value: 'target',
-    icon: '◎',
-    label: 'I have a job in mind',
-    detail: 'Show me the steps that lead to it.',
-  },
-  {
-    value: 'current',
-    icon: '↗',
-    label: 'I want to grow from where I am',
-    detail: 'Start from my current or most recent job and show where it can lead.',
-  },
+  { value: 'explore', label: 'Still exploring', detail: 'Browse jobs by field' },
+  { value: 'target', label: 'I have a job in mind', detail: 'See how to get there' },
+  { value: 'current', label: 'I want to move up', detail: 'See where my current job leads' },
 ]
 
 const EXPERIENCE = [
-  { value: 0, label: 'None yet' },
-  { value: 1, label: 'About 1 year' },
+  { value: 0, label: 'None' },
+  { value: 1, label: '1 year' },
   { value: 2, label: '2–3 years' },
   { value: 4, label: '4–5 years' },
   { value: 6, label: '6+ years' },
@@ -52,7 +37,7 @@ export function openWizard({ jobs, categories, initial, onDone }) {
   const root = document.createElement('div')
   root.className = 'wizard-backdrop'
   root.innerHTML = `
-    <div class="wizard metal-rim" role="dialog" aria-modal="true" aria-labelledby="wizard-title">
+    <div class="wizard" role="dialog" aria-modal="true" aria-labelledby="wizard-title">
       <div class="wizard-progress"><div class="wizard-progress-bar"></div></div>
       <p class="wizard-step-count"></p>
       <h2 id="wizard-title"></h2>
@@ -61,7 +46,7 @@ export function openWizard({ jobs, categories, initial, onDone }) {
       <div class="wizard-actions">
         <button class="link" data-action="skip-all">Skip to the map</button>
         <span class="spacer"></span>
-        <button class="secondary metal-rim" data-action="back">Back</button>
+        <button class="secondary" data-action="back">Back</button>
         <button class="primary" data-action="next">Next</button>
       </div>
     </div>`
@@ -83,12 +68,12 @@ export function openWizard({ jobs, categories, initial, onDone }) {
   // --- Steps -------------------------------------------------------------
 
   const goalStep = {
-    title: 'What brings you here?',
-    why: "We'll set up the map around what you're trying to figure out.",
+    title: 'Where are you in your job search?',
+    why: '',
     isComplete: () => draft.goal != null,
     render(body) {
       body.innerHTML = choiceList(
-        GOALS.map((g) => ({ ...g, selected: draft.goal === g.value })),
+        GOALS.map((g, i) => ({ ...g, number: `0${i + 1}`, selected: draft.goal === g.value })),
       )
       bindChoices(body, (value) => {
         if (draft.goal !== value) draft.anchorId = null
@@ -99,19 +84,17 @@ export function openWizard({ jobs, categories, initial, onDone }) {
 
   const anchorStep = {
     get title() {
-      return draft.goal === 'target' ? 'Which job are you aiming for?' : "What's your current or most recent job?"
+      return draft.goal === 'target' ? 'What job do you want?' : "What's your current job?"
     },
     get why() {
-      return draft.goal === 'target'
-        ? "We'll work backward from it to show jobs that can lead there."
-        : "We'll find similar jobs and show where they lead. Pick the closest match."
+      return draft.goal === 'target' ? '' : 'Or your most recent one. Pick the closest match.'
     },
     isComplete: () => draft.anchorId != null,
     optional: true,
     render(body) {
       const chosen = jobById.get(draft.anchorId)
       body.innerHTML = `
-        <input class="wizard-search" type="search" placeholder="Try “analyst”, “nurse”, “engineer”…" autocomplete="off"
+        <input class="wizard-search" type="search" placeholder="Search job titles" autocomplete="off"
                value="${escapeHtml(chosen?.title ?? '')}" />
         <ul class="wizard-results"></ul>`
       const input = body.querySelector('input')
@@ -133,7 +116,7 @@ export function openWizard({ jobs, categories, initial, onDone }) {
             </button></li>`,
           )
           .join('')
-        if (query && !matches.length) results.innerHTML = '<li class="muted">No matches. Try a shorter word.</li>'
+        if (query && !matches.length) results.innerHTML = '<li class="muted">No matches.</li>'
         results.querySelectorAll('button').forEach((button) =>
           button.addEventListener('click', () => {
             draft.anchorId = button.dataset.id
@@ -154,8 +137,8 @@ export function openWizard({ jobs, categories, initial, onDone }) {
   }
 
   const fieldsStep = {
-    title: 'Which fields sound interesting?',
-    why: 'Pick as many as you like. Leave them all off to see everything.',
+    title: 'What fields are you interested in?',
+    why: 'Select all that apply.',
     isComplete: () => true,
     render(body) {
       body.innerHTML = `<div class="chips">${categories
@@ -177,8 +160,8 @@ export function openWizard({ jobs, categories, initial, onDone }) {
   }
 
   const educationStep = {
-    title: "What's the highest education you have, or will have soon?",
-    why: "We'll mark which jobs you already meet the education requirement for.",
+    title: "What's your highest level of education?",
+    why: 'Count a degree you\'ll finish soon.',
     isComplete: () => draft.education != null,
     optional: true,
     render(body) {
@@ -191,8 +174,8 @@ export function openWizard({ jobs, categories, initial, onDone }) {
   }
 
   const experienceStep = {
-    title: 'How much full-time work experience do you have?',
-    why: 'Internships and part-time work count toward some NYC jobs, but most list full-time years.',
+    title: 'How many years of full-time work experience do you have?',
+    why: '',
     isComplete: () => draft.years != null,
     optional: true,
     render(body) {
@@ -205,18 +188,16 @@ export function openWizard({ jobs, categories, initial, onDone }) {
   }
 
   const salaryStep = {
-    title: "What's the lowest yearly salary that would work for you?",
+    title: "What's the lowest salary you'd accept?",
     get why() {
-      return entryMedian
-        ? `For reference, entry-level jobs here pay a median of ${compactMoney(entryMedian)} a year.`
-        : ''
+      return entryMedian ? `Entry-level jobs here pay about ${compactMoney(entryMedian)} a year.` : ''
     },
     isComplete: () => true,
     render(body) {
       body.innerHTML = choiceList(
         SALARIES.map((value) => ({
           value,
-          label: value ? `${compactMoney(value)}+` : 'No minimum',
+          label: value ? `${compactMoney(value)}+ a year` : 'No minimum',
           selected: draft.minSalary === value,
         })),
         true,
@@ -232,7 +213,7 @@ export function openWizard({ jobs, categories, initial, onDone }) {
       .map(
         (o) => `
         <button class="choice ${o.selected ? 'selected' : ''}" data-value="${escapeHtml(o.value)}" aria-pressed="${o.selected}">
-          ${o.icon ? `<span class="choice-icon" aria-hidden="true">${o.icon}</span>` : ''}
+          ${o.number ? `<span class="choice-number" aria-hidden="true">${o.number}</span>` : ''}
           <span class="choice-text">
             <span class="choice-label">${escapeHtml(o.label)}</span>
             ${o.detail ? `<span class="choice-detail">${escapeHtml(o.detail)}</span>` : ''}
@@ -257,21 +238,21 @@ export function openWizard({ jobs, categories, initial, onDone }) {
 
   function renderIntro() {
     $('.wizard').classList.add('intro')
-    $('#wizard-title').innerHTML = `
-      <span class="intro-orbit" aria-hidden="true"><span class="intro-planet"></span></span>
-      <span class="intro-title chrome-text">Every job is a star.</span>`
-    $('.wizard-why').innerHTML = `<span class="intro-copy" style="display:block">
-      Explore ${jobs.length.toLocaleString()} New York City jobs as a galaxy, from entry level to executive.
-      Answer five quick questions and we'll chart a path that fits you.</span>`
+    $('.wizard-step-count').textContent = '| NYC Career Paths'
+    $('#wizard-title').textContent = 'See where a job can take you'
+    $('.wizard-why').textContent =
+      `${jobs.length.toLocaleString()} NYC government job postings, from entry level to executive. ` +
+      'Answer 5 questions to see career paths that match your education and experience.'
+    $('.wizard-why').hidden = false
     $('.wizard-body').innerHTML = ''
     $('.wizard-body').style.minHeight = '0'
     $('.wizard-body').style.marginTop = '0'
     $('[data-action="back"]').hidden = true
     const next = $('[data-action="next"]')
-    next.textContent = 'Chart my path'
+    next.textContent = 'Get started'
     next.className = 'primary'
     next.disabled = false
-    $('[data-action="skip-all"]').textContent = 'Just let me look around'
+    $('[data-action="skip-all"]').textContent = 'Skip'
   }
 
   function render() {
@@ -279,13 +260,14 @@ export function openWizard({ jobs, categories, initial, onDone }) {
     $('.wizard').classList.remove('intro')
     $('.wizard-body').style.minHeight = ''
     $('.wizard-body').style.marginTop = ''
-    $('[data-action="skip-all"]').textContent = 'Skip to the map'
+    $('[data-action="skip-all"]').textContent = 'Skip to map'
     const list = steps()
     const step = list[index]
-    $('.wizard-step-count').textContent = `Step ${index + 1} of ${list.length}`
+    $('.wizard-step-count').textContent = `| Question ${index + 1} of ${list.length}`
     $('.wizard-progress-bar').style.width = `${((index + 1) / list.length) * 100}%`
     $('#wizard-title').textContent = step.title
     $('.wizard-why').textContent = step.why
+    $('.wizard-why').hidden = !step.why
     // A fresh element replays the entrance animation on every step.
     const body = document.createElement('div')
     body.className = 'wizard-step'
@@ -307,7 +289,7 @@ export function openWizard({ jobs, categories, initial, onDone }) {
       next.className = 'secondary'
       next.disabled = false
     } else {
-      next.textContent = isLast ? 'Show my map' : 'Next'
+      next.textContent = isLast ? 'See my paths' : 'Next'
       next.className = 'primary'
       next.disabled = !step.isComplete()
     }
