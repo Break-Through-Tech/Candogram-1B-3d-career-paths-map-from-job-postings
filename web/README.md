@@ -58,7 +58,8 @@ The app loads `public/data/jobs.json`:
 - `seniority_rank` uses the same 0–4 scale as `SENIORITY_MAP` in `src/preprocessing.py`.
 - Salaries are yearly. `min_education_rank` is 0 (none) to 5 (doctorate/professional); it and
   `min_years_experience` are `null` when the posting doesn't list them.
-- `x`, `y`, `z` are a 3D UMAP of the Gemini job embeddings, scaled to roughly −10…10 to match the camera setup.
+- `x`, `y`, `z` are a 3D UMAP of the Gemini job embeddings plus a weighted salary dimension (`SALARY_WEIGHT` in
+  `scripts/build-job-data.py`, 0 to ignore salary), scaled to roughly −10…10 to match the camera setup.
 - Set `"placeholder": true` to show the "placeholder layout" notice.
 
 Regenerate it from the model artifacts (needs `pandas`, `pyarrow`, `numpy` and `umap-learn`):

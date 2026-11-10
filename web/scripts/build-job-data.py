@@ -1,7 +1,9 @@
 """Build web/public/data/jobs.json from the career-path model artifacts.
 
 Coordinates are a 3D UMAP of the Gemini job embeddings in
-data/processed/job_representations.parquet. `next` and `prev` hold the
+data/processed/job_representations.parquet with one extra dimension for
+salary (z-scored log annual midpoint, weighted by SALARY_WEIGHT; 0 turns it
+off). The text embeddings themselves do not include salary. `next` and `prev` hold the
 strongest browsing moves from data/processed/job_move_edges.parquet (one
 seniority rank up / down). Requirement fields (education, years, license)
 are carried over from the existing jobs.json by job ID.
@@ -20,12 +22,17 @@ ROOT = Path(__file__).resolve().parents[2]
 OUTPUT = ROOT / "web/public/data/jobs.json"
 LINKS_PER_JOB = 3
 SCALE = 10
+SALARY_WEIGHT = 0.3
 
 jobs = pd.read_parquet(ROOT / "data/processed/job_representations.parquet")
 edges = pd.read_parquet(ROOT / "data/processed/job_move_edges.parquet")
 previous = {job["id"]: job for job in json.loads(OUTPUT.read_text())["jobs"]}
 
-coordinates = umap.UMAP(n_components=3, metric="cosine", random_state=42).fit_transform(np.stack(jobs["embedding"]))
+salary_mid = jobs[["annual_salary_from", "annual_salary_to"]].mean(axis=1)
+log_salary = np.log10(salary_mid.clip(lower=1))
+salary_z = ((log_salary - log_salary.mean()) / log_salary.std()).fillna(0).to_numpy()
+features = np.column_stack([np.stack(jobs["embedding"]), SALARY_WEIGHT * salary_z])
+coordinates = umap.UMAP(n_components=3, random_state=42).fit_transform(features)
 coordinates = (coordinates - coordinates.mean(axis=0)) / np.abs(coordinates - coordinates.mean(axis=0)).max() * SCALE
 
 up = edges[edges["move_type"] == "up_one_seniority_rank"].sort_values("ranking_score", ascending=False)
