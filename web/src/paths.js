@@ -1,5 +1,6 @@
-// Career path logic: step between seniority levels by moving to the nearest
-// job (in the 3D embedding space) at the next level up or down.
+// Career path logic: step between seniority levels along the model's strongest
+// moves (`next` / `prev` on each job), falling back to the nearest job in the
+// 3D embedding space when none of them is at the wanted level or visible.
 
 export const SENIORITY_LABELS = [
   'Student',
@@ -44,6 +45,8 @@ export function nearestAtRank(jobs, job, rank, k = 1) {
  */
 export function careerPath(jobs, anchor, direction = 'forward', { sameField = false } = {}) {
   const path = [anchor]
+  const byId = new Map(jobs.map((job) => [job.id, job]))
+  const links = direction === 'forward' ? 'next' : 'prev'
   let current = anchor
   const step = direction === 'forward' ? 1 : -1
   const last = direction === 'forward' ? MAX_RANK : BACKWARD_MIN_RANK
@@ -51,7 +54,8 @@ export function careerPath(jobs, anchor, direction = 'forward', { sameField = fa
     const sameFieldJobs = sameField
       ? jobs.filter((job) => job.categories.some((c) => current.categories.includes(c)))
       : []
-    const [next] = nearestAtRank(sameFieldJobs, current, rank).concat(nearestAtRank(jobs, current, rank))
+    const linked = (current[links] ?? []).map((id) => byId.get(id)).filter((job) => job?.seniority_rank === rank)
+    const [next] = linked.concat(nearestAtRank(sameFieldJobs, current, rank), nearestAtRank(jobs, current, rank))
     if (!next) continue
     path.push(next)
     current = next

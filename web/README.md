@@ -12,7 +12,9 @@ from a current job), plus their education, experience and salary needs. The answ
 
 Every step shows salary, minimum education, years of experience and whether a license is needed, with
 badges for what the student is missing. Filters (industry, minimum salary, "only jobs I qualify for",
-hide license-required jobs) dim the map and constrain paths. Answers are remembered in the browser.
+hide license-required jobs) dim the map and constrain paths. A "By level" section narrows each seniority
+level separately (pay range, field, agency) and shows how many jobs remain at that level. Answers are
+remembered in the browser.
 
 ## Run it
 
@@ -51,42 +53,39 @@ The app loads `public/data/jobs.json`:
 }
 ```
 
-- Fields come from the cleaned CSV on the `data_cleaning` branch (`jobs_clean_with_salary.csv`).
+- Fields come from `data/processed/job_representations.parquet`; `next` / `prev` (not shown above) are job IDs
+  of the strongest one-level-up / one-level-down moves from `job_move_edges.parquet`.
 - `seniority_rank` uses the same 0–4 scale as `SENIORITY_MAP` in `src/preprocessing.py`.
 - Salaries are yearly. `min_education_rank` is 0 (none) to 5 (doctorate/professional); it and
   `min_years_experience` are `null` when the posting doesn't list them.
-- `x`, `y`, `z` are the 3D coordinates to plot. They should come from the model pipeline
-  (sentence embeddings → UMAP to 3D). The app works with any coordinate scale, though
-  roughly −10…10 matches the current camera setup.
+- `x`, `y`, `z` are a 3D UMAP of the Gemini job embeddings, scaled to roughly −10…10 to match the camera setup.
 - Set `"placeholder": true` to show the "placeholder layout" notice.
 
-Until the model produces coordinates, generate a placeholder file from the cleaned CSV
-(run `python main.py` on the `data_cleaning` branch first to create it):
+Regenerate it from the model artifacts (needs `pandas`, `pyarrow`, `numpy` and `umap-learn`):
 
 ```bash
-node scripts/make-placeholder-data.mjs
+python web/scripts/build-job-data.py
 ```
 
-It groups points by job category (x/z) and stacks them by seniority (y).
+Education, experience and license fields are carried over from the existing `jobs.json` by job ID.
+`scripts/make-placeholder-data.mjs` is the older category-grid layout from the cleaned CSV and overwrites `jobs.json`.
 
 ## How paths are computed
 
-`src/paths.js` starts at the selected job and repeatedly steps to the nearest job (in 3D space)
-at the next seniority rank up ("where it leads") or down to Entry-Level ("how to get here"), skipping
-ranks with no jobs. While the data is a placeholder, steps prefer jobs in the same field, since the
-placeholder layout only groups by category. Once the embedding coordinates are in,
-"nearest" means "most similar title/description", which gives the Entry Level → Senior progression
-described in the challenge. This can later be swapped for neighbors precomputed in Python
-(e.g. scikit-learn `NearestNeighbors` on the full embeddings) by adding them to `jobs.json`.
+`src/paths.js` starts at the selected job and, for each seniority level up ("where it leads") or down to
+Entry-Level ("how to get here"), takes the model's strongest move (`next` / `prev`) that is still visible
+under the current filters. If none qualifies, it steps to the nearest job in 3D space at that level,
+skipping levels with no jobs. With placeholder coordinates, steps also prefer jobs in the same field.
 
 ## Layout
 
 | File | Purpose |
 |------|---------|
-| `src/main.js` | Loads data, app state, filters, search, path and suggestion panels |
+| `src/main.js` | Loads data, app state, filters (including per-level), search, path and suggestion panels |
 | `src/wizard.js` | Onboarding questions |
 | `src/profile.js` | Student answers and "do I meet the minimums?" checks |
 | `src/scene.js` | three.js scene: instanced points, orbit controls, picking, filtering, path tube |
 | `src/paths.js` | Career path algorithm |
 | `src/format.js` | Salary and text formatting |
-| `scripts/make-placeholder-data.mjs` | Builds placeholder `jobs.json` from the cleaned CSV |
+| `scripts/build-job-data.py` | Builds `jobs.json` from the embeddings and move graph |
+| `scripts/make-placeholder-data.mjs` | Older placeholder layout from the cleaned CSV |

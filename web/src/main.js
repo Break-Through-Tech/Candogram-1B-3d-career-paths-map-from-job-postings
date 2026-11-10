@@ -19,10 +19,12 @@ const $ = (selector) => document.querySelector(selector)
 const { jobs, placeholder } = await fetch(`${import.meta.env.BASE_URL}data/jobs.json`).then((r) => r.json())
 const jobById = new Map(jobs.map((job) => [job.id, job]))
 const categories = [...new Set(jobs.flatMap((job) => job.categories))].sort()
+const ranks = [...new Set(jobs.map((job) => job.seniority_rank))].sort((a, b) => a - b)
 
 const state = {
   profile: { ...EMPTY_PROFILE },
   filters: { categories: new Set(), minSalary: 0, qualifiedOnly: false, hideLicense: false },
+  levelFilters: new Map(ranks.map((rank) => [rank, { minPay: '', maxPay: '', category: '', agency: '' }])),
   selected: null,
   direction: 'forward', // 'forward' = where it leads, 'backward' = how to get there
 }
@@ -64,8 +66,69 @@ function passesFilters(job, { forPath = false } = {}) {
   const topPay = job.salary_to ?? job.salary_mid
   if (filters.minSalary && topPay != null && topPay < filters.minSalary) return false
   if (filters.hideLicense && job.license) return false
+  if (!passesLevelFilter(job)) return false
   if (!forPath && filters.qualifiedOnly && !readiness(profile, job).confirmed) return false
   return true
+}
+
+/** The per-level filters only apply to jobs at that seniority level. */
+function passesLevelFilter(job) {
+  const { minPay, maxPay, category, agency } = state.levelFilters.get(job.seniority_rank)
+  const low = job.salary_from ?? job.salary_to
+  const high = job.salary_to ?? job.salary_from
+  if (minPay !== '' && (high == null || high < Number(minPay))) return false
+  if (maxPay !== '' && (low == null || low > Number(maxPay))) return false
+  if (category && !job.categories.includes(category)) return false
+  if (agency && job.agency !== agency) return false
+  return true
+}
+
+function renderLevelFilters() {
+  const options = (values, label) =>
+    `<option value="">${label}</option>${[...new Set(values)]
+      .sort((a, b) => a.localeCompare(b))
+      .map((value) => `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`)
+      .join('')}`
+  $('#level-filters').innerHTML = ranks
+    .map((rank) => {
+      const levelJobs = jobs.filter((job) => job.seniority_rank === rank)
+      const label = SENIORITY_LABELS[rank]
+      return `
+        <details class="level-filter" data-rank="${rank}">
+          <summary>
+            <span class="swatch" style="background:${SENIORITY_COLORS[rank]};color:${SENIORITY_COLORS[rank]}"></span>
+            <span class="level-name">${escapeHtml(label)}</span>
+            <span class="level-count" data-count="${rank}"></span>
+          </summary>
+          <div class="level-fields">
+            <div class="pay-range">
+              <input data-field="minPay" type="number" min="0" step="5000" placeholder="Min pay" aria-label="Minimum pay for ${escapeHtml(label)}">
+              <input data-field="maxPay" type="number" min="0" step="5000" placeholder="Max pay" aria-label="Maximum pay for ${escapeHtml(label)}">
+            </div>
+            <select data-field="category" aria-label="Field for ${escapeHtml(label)}">${options(levelJobs.flatMap((job) => job.categories), 'All fields')}</select>
+            <select data-field="agency" aria-label="Agency for ${escapeHtml(label)}">${options(levelJobs.map((job) => job.agency), 'All agencies')}</select>
+          </div>
+        </details>`
+    })
+    .join('')
+}
+
+$('#level-filters').addEventListener('input', (event) => {
+  const field = event.target.dataset.field
+  if (!field) return
+  state.levelFilters.get(Number(event.target.closest('.level-filter').dataset.rank))[field] = event.target.value
+  refresh()
+})
+
+function updateLevelCounts() {
+  for (const rank of ranks) {
+    const section = $(`.level-filter[data-rank="${rank}"]`)
+    const levelJobs = jobs.filter((job) => job.seniority_rank === rank)
+    const shown = levelJobs.filter((job) => passesFilters(job)).length
+    section.querySelector('.level-count').textContent = `${shown.toLocaleString()} / ${levelJobs.length.toLocaleString()}`
+    const { minPay, maxPay, category, agency } = state.levelFilters.get(rank)
+    section.classList.toggle('active', Boolean(minPay || maxPay || category || agency))
+  }
 }
 
 function renderFilters() {
@@ -108,6 +171,8 @@ $('#hide-license').addEventListener('change', (event) => {
   state.filters.hideLicense = event.target.checked
   refresh()
 })
+
+renderLevelFilters()
 
 // --- Profile ----------------------------------------------------------------
 
@@ -177,6 +242,21 @@ function jobCard(job, { index, label } = {}) {
     </button>`
 }
 
+function jobDetails(job) {
+  const rows = [
+    ['Pay', salaryRange(job)],
+    ['Agency', job.agency],
+    ['Fields', job.categories.join(', ')],
+    ['Level', job.career_level],
+    ['Job ID', job.id],
+  ]
+  return `
+    <section class="job-details" aria-label="Selected job">
+      <h3>${escapeHtml(job.title)}</h3>
+      <dl>${rows.map(([label, value]) => `<div><dt>${label}</dt><dd>${escapeHtml(value)}</dd></div>`).join('')}</dl>
+    </section>`
+}
+
 function renderPath(path) {
   const anchor = state.selected
   const backward = state.direction === 'backward'
@@ -197,6 +277,7 @@ function renderPath(path) {
       <button data-direction="forward" aria-pressed="${!backward}">Where it leads</button>
       <button data-direction="backward" aria-pressed="${backward}">How to get here</button>
     </div>
+    ${jobDetails(anchor)}
     ${path.length === 1 ? `<p class="muted">No ${backward ? 'more junior' : 'more senior'} jobs match your filters. Try loosening them.</p>` : ''}
     <ol class="path">
       ${path
@@ -276,6 +357,7 @@ function refresh() {
     $('#search').value = ''
   }
   renderFilters()
+  updateLevelCounts()
   renderProfileSummary()
 }
 

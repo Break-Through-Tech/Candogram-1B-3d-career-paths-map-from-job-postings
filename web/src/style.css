@@ -273,6 +273,48 @@ input[type="range"]::-moz-range-thumb {
 .chip:hover { background: var(--card-hover); }
 .chip.selected { color: var(--white); background: var(--tile); box-shadow: inset 0 0 0 1.5px var(--teal); }
 
+/* Per-level filters */
+#level-filters { margin-top: 10px; display: grid; gap: 6px; }
+.level-filter { background: var(--card); border-radius: 14px; }
+.level-filter summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  cursor: pointer;
+  list-style: none;
+  font-size: 14px;
+  color: var(--secondary);
+}
+.level-filter summary::-webkit-details-marker { display: none; }
+.level-filter summary .swatch { margin-top: 0; width: 10px; height: 10px; }
+.level-name { flex: 1; font-weight: 600; color: var(--white); }
+.level-count { font-size: 13px; color: var(--faint); font-variant-numeric: tabular-nums; }
+.level-filter.active { box-shadow: inset 0 0 0 1.5px var(--teal); }
+.level-fields { display: grid; gap: 8px; padding: 0 14px 14px; }
+.pay-range { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.level-fields input, .level-fields select {
+  width: 100%;
+  min-width: 0;
+  padding: 9px 12px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--white);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+.level-fields select option { color: #111; }
+.level-fields input:focus, .level-fields select:focus { outline: none; border-color: var(--teal); }
+
+/* Selected job details */
+.job-details { margin-bottom: 14px; padding: 14px 16px; background: var(--card); border-radius: 16px; }
+.job-details h3 { margin: 0 0 10px; font-size: 16px; font-weight: 700; color: var(--white); }
+.job-details dl { display: grid; gap: 6px; margin: 0; }
+.job-details dl div { display: grid; grid-template-columns: 64px 1fr; gap: 8px; font-size: 13px; }
+.job-details dt { color: var(--faint); }
+.job-details dd { margin: 0; color: var(--secondary); overflow-wrap: anywhere; }
+
 #tooltip {
   position: fixed;
   pointer-events: none;
