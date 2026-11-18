@@ -4,6 +4,7 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js'
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js'
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js'
+import { SENIORITY_LABELS } from './paths.js'
 
 // One color per seniority rank (Student → Executive), cool to warm like star temperatures.
 export const SENIORITY_COLORS = ['#67e8f9', '#86efac', '#fde047', '#fb923c', '#f472b6']
@@ -36,6 +37,26 @@ function glowTexture({ ring = false } = {}) {
   const texture = new THREE.CanvasTexture(canvas)
   texture.colorSpace = THREE.SRGBColorSpace
   return texture
+}
+
+/** A text sprite for a level label, drawn on a transparent canvas. */
+function labelSprite(text, color) {
+  const canvas = document.createElement('canvas')
+  canvas.width = 704
+  canvas.height = 96
+  const ctx = canvas.getContext('2d')
+  ctx.font = '600 44px "Plus Jakarta Sans", system-ui, sans-serif'
+  ctx.textBaseline = 'middle'
+  ctx.fillStyle = color
+  ctx.fillText(text, 8, canvas.height / 2)
+  const texture = new THREE.CanvasTexture(canvas)
+  texture.colorSpace = THREE.SRGBColorSpace
+  const sprite = new THREE.Sprite(
+    new THREE.SpriteMaterial({ map: texture, transparent: true, opacity: 0.85, depthWrite: false, toneMapped: false }),
+  )
+  sprite.scale.set(6.6, 0.9, 1)
+  sprite.center.set(0, 0.5)
+  return sprite
 }
 
 function starfield(count = 1500) {
@@ -81,7 +102,7 @@ export function createScene(container, jobs, { onHover, onSelect, getInsets = ()
   scene.background = new THREE.Color('#1a232e')
 
   const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 500)
-  camera.position.set(15, 7, 17)
+  camera.position.set(22, 9, 25)
 
   const controls = new OrbitControls(camera, renderer.domElement)
   controls.enableDamping = true
@@ -106,6 +127,32 @@ export function createScene(container, jobs, { onHover, onSelect, getInsets = ()
   const baseColors = jobs.map((job) => new THREE.Color(SENIORITY_COLORS[job.seniority_rank]))
   const scratch = new THREE.Color()
   scene.add(mesh)
+
+  // Each seniority level is its own layer: a faint disc and a label at the layer's height.
+  const layerRadius = Math.max(...jobs.map((job) => Math.hypot(job.x - center.x, job.z - center.z))) + 0.5
+  for (const rank of new Set(jobs.map((job) => job.seniority_rank))) {
+    const atRank = jobs.filter((job) => job.seniority_rank === rank)
+    const height = atRank.reduce((sum, job) => sum + job.y, 0) / atRank.length
+    const color = SENIORITY_COLORS[rank]
+    const disc = new THREE.Mesh(
+      new THREE.CircleGeometry(layerRadius, 96),
+      new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.025, side: THREE.DoubleSide, depthWrite: false }),
+    )
+    const rim = new THREE.LineLoop(
+      new THREE.BufferGeometry().setFromPoints(
+        Array.from({ length: 96 }, (_, i) => {
+          const angle = (i / 96) * Math.PI * 2
+          return new THREE.Vector3(Math.cos(angle) * layerRadius, 0, Math.sin(angle) * layerRadius)
+        }),
+      ),
+      new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.3 }),
+    )
+    const label = labelSprite(SENIORITY_LABELS[rank], color)
+    disc.rotation.x = -Math.PI / 2
+    for (const object of [disc, rim]) object.position.set(center.x, height, center.z)
+    label.position.set(center.x + layerRadius * 0.6, height, center.z - layerRadius * 0.6)
+    scene.add(disc, rim, label)
+  }
 
   const pathGroup = new THREE.Group()
   scene.add(pathGroup)
@@ -262,7 +309,7 @@ export function createScene(container, jobs, { onHover, onSelect, getInsets = ()
       controls.autoRotate = false
       flyTo(sphere.center, fitDistance(Math.max(sphere.radius, 3)))
     } else {
-      flyTo(center, fitDistance(11))
+      flyTo(center, fitDistance(14))
     }
   }
 

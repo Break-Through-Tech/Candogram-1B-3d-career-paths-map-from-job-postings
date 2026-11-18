@@ -58,8 +58,11 @@ The app loads `public/data/jobs.json`:
 - `seniority_rank` uses the same 0–4 scale as `SENIORITY_MAP` in `src/preprocessing.py`.
 - Salaries are yearly. `min_education_rank` is 0 (none) to 5 (doctorate/professional); it and
   `min_years_experience` are `null` when the posting doesn't list them.
-- `x`, `y`, `z` are a 3D UMAP of the Gemini job embeddings plus a weighted salary dimension (`SALARY_WEIGHT` in
-  `scripts/build-job-data.py`, 0 to ignore salary), scaled to roughly −10…10 to match the camera setup.
+- `y` is the vertical axis and is set by seniority: each of the five levels is its own layer, `LEVEL_GAP` apart,
+  and a job's height inside its layer follows its salary percentile among jobs of that level (`LAYER_THICKNESS`),
+  so the layers never overlap. `x` and `z` are a 2D UMAP of the Gemini job embeddings with the span of the level
+  centroids projected out, scaled to roughly −10…10. They place a job by field only, so same-field jobs at
+  different levels sit above one another. Salary is kept out of `x` and `z` because it is a proxy for level.
 - Set `"placeholder": true` to show the "placeholder layout" notice.
 
 Regenerate it from the model artifacts (needs `pandas`, `pyarrow`, `numpy` and `umap-learn`):
@@ -75,7 +78,7 @@ Education, experience and license fields are carried over from the existing `job
 
 `src/paths.js` starts at the selected job and, for each seniority level up ("where it leads") or down to
 Entry-Level ("how to get here"), takes the model's strongest move (`next` / `prev`) that is still visible
-under the current filters. If none qualifies, it steps to the nearest job in 3D space at that level,
+under the current filters. If none qualifies, it steps to the nearest job at that level (by `x` and `z`),
 skipping levels with no jobs. With placeholder coordinates, steps also prefer jobs in the same field.
 
 ## Layout

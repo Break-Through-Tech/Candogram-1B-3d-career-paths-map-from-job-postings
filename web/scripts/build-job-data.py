@@ -1,12 +1,16 @@
 """Build web/public/data/jobs.json from the career-path model artifacts.
 
-Coordinates are a 3D UMAP of the Gemini job embeddings in
-data/processed/job_representations.parquet with one extra dimension for
-salary (z-scored log annual midpoint, weighted by SALARY_WEIGHT; 0 turns it
-off). The text embeddings themselves do not include salary. `next` and `prev` hold the
-strongest browsing moves from data/processed/job_move_edges.parquet (one
-seniority rank up / down). Requirement fields (education, years, license)
-are carried over from the existing jobs.json by job ID.
+Seniority level is the map's vertical axis: each of the five levels is its own
+layer, LEVEL_GAP apart, and a job's height within its layer follows its salary
+percentile among jobs of that level (LAYER_THICKNESS), so layers never overlap.
+The horizontal position (x, z) is a 2D UMAP of the Gemini job embeddings in
+data/processed/job_representations.parquet after projecting out the span of the
+level centroids, so it places jobs by field only and a job sits near its
+same-field neighbours at the other levels. Salary stays out of the horizontal
+layout because it is a proxy for level. `next` and `prev` hold the strongest
+browsing moves from data/processed/job_move_edges.parquet (one seniority rank
+up / down). Requirement fields (education, years, license) are carried over
+from the existing jobs.json by job ID.
 
 Usage: python web/scripts/build-job-data.py
 """
@@ -22,18 +26,25 @@ ROOT = Path(__file__).resolve().parents[2]
 OUTPUT = ROOT / "web/public/data/jobs.json"
 LINKS_PER_JOB = 3
 SCALE = 10
-SALARY_WEIGHT = 0.3
+LEVEL_GAP = 4
+LAYER_THICKNESS = 1.2
+MIDDLE_RANK = 2
 
 jobs = pd.read_parquet(ROOT / "data/processed/job_representations.parquet")
 edges = pd.read_parquet(ROOT / "data/processed/job_move_edges.parquet")
 previous = {job["id"]: job for job in json.loads(OUTPUT.read_text())["jobs"]}
 
+embeddings = np.stack(jobs["embedding"]).astype(np.float64)
+ranks = jobs["seniority_rank"].to_numpy()
+level_centroids = np.stack([embeddings[ranks == rank].mean(axis=0) for rank in range(5)])
+level_axes = np.linalg.svd(level_centroids - level_centroids.mean(axis=0), full_matrices=False)[2][:4]
+field_embeddings = embeddings - (embeddings @ level_axes.T) @ level_axes
+plane = umap.UMAP(n_components=2, random_state=42).fit_transform(field_embeddings)
+plane = (plane - plane.mean(axis=0)) / np.abs(plane - plane.mean(axis=0)).max() * SCALE
+
 salary_mid = jobs[["annual_salary_from", "annual_salary_to"]].mean(axis=1)
-log_salary = np.log10(salary_mid.clip(lower=1))
-salary_z = ((log_salary - log_salary.mean()) / log_salary.std()).fillna(0).to_numpy()
-features = np.column_stack([np.stack(jobs["embedding"]), SALARY_WEIGHT * salary_z])
-coordinates = umap.UMAP(n_components=3, random_state=42).fit_transform(features)
-coordinates = (coordinates - coordinates.mean(axis=0)) / np.abs(coordinates - coordinates.mean(axis=0)).max() * SCALE
+salary_percentile = salary_mid.groupby(jobs["seniority_rank"]).rank(pct=True).fillna(0.5)
+heights = (ranks - MIDDLE_RANK) * LEVEL_GAP + (salary_percentile.to_numpy() - 0.5) * LAYER_THICKNESS
 
 up = edges[edges["move_type"] == "up_one_seniority_rank"].sort_values("ranking_score", ascending=False)
 next_ids = up.groupby("source_job_id")["target_job_id"].apply(lambda ids: list(ids[:LINKS_PER_JOB]))
@@ -45,7 +56,7 @@ def number(value):
 
 
 records = []
-for (_, job), (x, y, z) in zip(jobs.iterrows(), coordinates):
+for (_, job), (x, z), y in zip(jobs.iterrows(), plane, heights):
     job_id = job["Job ID"]
     salary_from, salary_to = number(job["annual_salary_from"]), number(job["annual_salary_to"])
     salaries = [s for s in (salary_from, salary_to) if s is not None]
