@@ -1,6 +1,7 @@
 // Career path logic: step between seniority levels along the model's strongest
-// moves (`next` / `prev` on each job), falling back to the nearest job in the
-// 3D embedding space when none of them is at the wanted level or visible.
+// moves (`next` / `prev` on each job), falling back to the nearest job at the
+// wanted level when none of them is at that level or visible. Each level is its
+// own layer on the map's vertical axis (y), so "nearest" compares x and z only.
 
 export const SENIORITY_LABELS = [
   'Student',
@@ -16,9 +17,8 @@ const BACKWARD_MIN_RANK = 1
 
 function distanceSq(a, b) {
   const dx = a.x - b.x
-  const dy = a.y - b.y
   const dz = a.z - b.z
-  return dx * dx + dy * dy + dz * dz
+  return dx * dx + dz * dz
 }
 
 /** Nearest `k` jobs to `job` at exactly `rank`, closest first. */

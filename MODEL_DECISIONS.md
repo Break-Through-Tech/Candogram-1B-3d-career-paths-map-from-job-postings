@@ -88,3 +88,23 @@ Add a dated entry when a new modeling problem leads to a consequential choice. R
 
 - **Observed:** MiniLM did not improve a tiny agent-judged pilot: development nDCG was 0.8754 for hybrid versus 0.8314 for the model; held-out values were both 0.9949. These scores covered only 3–5 judged pairs per goal, not full result-list relevance.
 - **Decision:** Remove the model wrapper, evaluation script, synthetic judgments, report, and optional dependencies. The pilot does not validate either ranking approach or an abstention threshold.
+
+## 2026-11-10 — Make seniority level the map's vertical axis
+
+- **Problem:** Advisor feedback: seniority level should be what distinguishes jobs, but the map did not show five ordered levels. Job embeddings are organized by field: level explains 3.3% of their variance, and in the earlier 3D UMAP (with salary as a feature) it explained 15.4% of layout variance. The signal exists (a ridge regression on the embeddings predicts `seniority_rank` with 0.75 cross-validated correlation, and the level centroids fall in rank order), but a nonlinear projection discards it.
+- **Decision:** Treat the five source `Career Level` ranks (Student, Entry-Level, Experienced, Manager, Executive) as five separate layers on the vertical axis. A job's height within its layer follows its salary percentile among jobs of that level, so layers never overlap. Place jobs horizontally with a 2D UMAP of embeddings after projecting out the 4-dimensional span of the level centroids, so position depends on field and a path climbs close to vertically. Keep salary out of the horizontal layout.
+- **Retrieval left unchanged:** Moves are still the saved `job_move_edges.parquet` edges. Ranking up-moves with level-removed similarity keeps the same top-1 for 93.5% of source jobs (top-3 overlap 0.819), and the best level-removed next-level job was inside the saved top-32 for all 1,198 source jobs below Executive. The layout, not retrieval, caused the non-linear look.
+- **Before/after** (layout proxies, 1,228 jobs, UMAP seed 42; median horizontal distance of the top-3 next moves versus random job pairs, and agreement among each job's 10 nearest layout neighbors):
+
+  | Layout | Step ÷ random distance | Neighbors sharing a category | Neighbors at same level |
+  |---|---:|---:|---:|
+  | Earlier 3D, salary weight 0.3 | 0.39 | 0.663 | 0.723 |
+  | 2D, raw embeddings | 0.19 | 0.760 | 0.679 |
+  | 2D, level projected out (chosen) | 0.20 | 0.773 | 0.632 |
+  | Level projected out + within-level salary, weight 0.3 | 0.38 | 0.732 | 0.638 |
+  | Level projected out + global salary, weight 0.3 | 0.40 | 0.709 | 0.718 |
+
+  Chance agreement on level is 0.550 because 888 of 1,228 jobs are Experienced. The chosen layout gave 0.21 and 0.22 with UMAP seeds 1 and 2.
+- **Instead of:** Changing the embedding input or the edge ranking, leaving salary in the horizontal features (it roughly doubles path-step length and reintroduces level), or splitting the Experienced level into synthetic sub-levels.
+- **Limits:** These are layout proxies, not a relevance judgment. The levels are very uneven (33 Student, 145 Entry-Level, 888 Experienced, 132 Manager, 30 Executive), so the Experienced layer is dense. The projection removes only the level-centroid span, so field mix that differs by level is removed with it.
+- **Revisit when:** Human or user judgments show that same-field alignment misrepresents real moves, or a finer, evidence-based split of the Experienced level is justified.
