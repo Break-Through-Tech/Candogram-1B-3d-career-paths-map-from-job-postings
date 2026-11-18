@@ -25,6 +25,38 @@ def load_job_graph(records):
     return dict(adjacency)
 
 
+def build_job_graph(explorer, start_job_id, max_depth=3, limit_per_job=5):
+    """Build a graph by retrieving transitions for each discovered job."""
+    from collections import deque
+
+    start = str(start_job_id)
+    adjacency = defaultdict(list)
+    queue = deque([(start, 0)])
+    expanded = set()
+
+    while queue:
+        current_job, depth = queue.popleft()
+
+        if current_job in expanded or depth >= max_depth:
+            continue
+
+        expanded.add(current_job)
+
+        records = explorer.explore_records(current_job, limit=limit_per_job,)
+
+        node_graph = load_job_graph(records)
+
+        for source_id, connections in node_graph.items():
+            adjacency[source_id].extend(connections)
+
+            for connection in connections:
+                next_job = connection["target_job_id"]
+                if next_job not in expanded:
+                    queue.append((next_job, depth + 1))
+
+    return dict(adjacency)
+
+
 def find_path(graph, start_job_id, destination_job_id):
     """Find the shortest path between two jobs using BFS."""
     from collections import deque
@@ -49,7 +81,7 @@ def find_path(graph, start_job_id, destination_job_id):
     return None
 
 
-def find_multiple_paths(graph, start_job_id, destination_job_id, max_paths=5):
+def find_multiple_paths(graph, start_job_id, destination_job_id, max_paths=5, max_depth=3):
     """Find multiple simple paths between two jobs."""
     from collections import deque
 
@@ -65,6 +97,9 @@ def find_multiple_paths(graph, start_job_id, destination_job_id, max_paths=5):
 
         if current_job == destination:
             paths.append(path)
+            continue
+
+        if len(path) - 1 >= max_depth:
             continue
 
         for connection in graph.get(current_job, []):
@@ -171,7 +206,7 @@ def diversify_paths(ranked_paths, max_paths=5, threshold=0.7):
             union = candidate_jobs | existing_jobs
             intersection = candidate_jobs & existing_jobs
 
-            similarity = (len(intersection) / len(union) if union else 1.0)
+            similarity = (len(intersection) / len(union) if union else 0.0)
 
             if similarity >= threshold:
                 too_similar = True
@@ -185,6 +220,24 @@ def diversify_paths(ranked_paths, max_paths=5, threshold=0.7):
 
     return selected
 
+
+def explore_career_paths(explorer, start_job_id, destination_job_id=None, max_depth=3, max_paths=20, limit_per_job=5):
+    """Retrieve, explore, rank, and format career paths."""
+    graph = build_job_graph(explorer, start_job_id, max_depth=max_depth, limit_per_job=limit_per_job)
+
+    if destination_job_id is not None:
+        paths = find_multiple_paths(graph, start_job_id, destination_job_id, max_paths=max_paths, max_depth=max_depth)
+    else:
+        paths = explore_paths(graph, start_job_id, max_depth=max_depth, max_paths=max_paths)
+
+    if not paths:
+        return []
+
+    
+    ranked = rank_paths(graph, paths)
+    diversified = diversify_paths(ranked, max_paths=5, threshold=0.7)
+
+    return format_paths(diversified)
 
 
 
