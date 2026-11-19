@@ -9,6 +9,23 @@ Add a dated entry when a new modeling problem leads to a consequential choice. R
 - **Instead of:** Restricting search to browsing suggestions, using 3D distance as a move rule, or using weighted K-shortest paths when the first objective is the fewest moves.
 - **Revisit when:** User research changes the primary objective from minimum moves to minimum effort, or measured search performance calls for another algorithm. Move quality still controls which directed edges the search may use.
 
+## 2026-10-27 — Add provisional qualification evidence to node transitions
+
+- **Problem:** Selected-node exploration ranked outgoing jobs with the browsing score, which used role similarity, title overlap, category overlap, and civil-service-title equality but did not compare the target's qualification text with evidence in the source role.
+- **Decision:** Keep the existing signals as candidate-transition features and add a small direct-text qualification-overlap component. Compare the target's `Minimum Qual Requirements` and `Preferred Skills` with the source's `selected_description` and `Preferred Skills`. Return the overlap and unevidenced target terms with each transition so the score remains inspectable.
+- **Provisional weights:** role similarity 0.80, title overlap 0.08, same civil-service title 0.04, same category 0.03, qualification overlap 0.05.
+- **Instead of:** Treating embedding similarity as career feasibility, adding a hand-written skills vocabulary, or claiming that unevidenced terms are definitely missing from the user's background.
+- **Before/after smoke check:** On five selected nodes, the same five-candidate sets were returned. The qualification component changed ordering in several sets, including manager and software-development examples. This was a smoke comparison, not a relevance evaluation.
+- **Revisit when:** Manual judgments show that generic qualification terms distort the score, or a structured requirement representation is shown to improve transition ranking.
+
+## 2026-10-27 — Retrieve node-exploration candidates from the full collection
+
+- **Problem:** The saved browsing graph retains only a bounded number of nearby jobs per allowed seniority level, so using it as the complete retrieval set could hide a plausible next job.
+- **Decision:** For selected-node exploration, generate candidates from the full job collection, restricting only by the transition policy's allowed seniority offsets and move types. Keep saved-edge retrieval as an explicit baseline option for comparison.
+- **Instead of:** Treating the precomputed browsing suggestions as the complete career-move set or using 3D display distance as a retrieval rule.
+- **Smoke comparison:** A deterministic sample of 20 selected nodes produced valid, ordered, duplicate-free target IDs in all 20 cases. Full-collection retrieval considered an average of 848.9 eligible candidates versus 63.7 saved edges per node; the top five lists happened to match in all 20 cases. Seven of the 20 top-five lists contained repeated target business titles, so title diversity remains an open issue. This confirms implementation behavior, not relevance; manual judgments are still required.
+- **Revisit when:** Full-collection latency becomes material, or evaluation shows that a smaller candidate-generation index preserves relevant transitions without reducing coverage.
+
 ## 2026-09-30 — Add annual full-time salary equivalents
 
 - **Problem:** Source salary bounds use annual, hourly, and daily units, so salary ranges cannot be compared directly.

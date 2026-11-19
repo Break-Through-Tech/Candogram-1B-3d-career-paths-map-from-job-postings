@@ -4,3 +4,5 @@
 __pycache__/
 .DS_Store
 data/processed/jobs_clean.csv
+.vscode/
+ *.egg-info/
